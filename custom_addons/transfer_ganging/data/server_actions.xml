@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Server Action for Ganging Analysis -->
+        <record id="action_analyze_gang_tasks_server" model="ir.actions.server">
+            <field name="name">Analyze and Gang Tasks</field>
+            <field name="model_id" ref="project.model_project_task"/>
+            <field name="binding_model_id" ref="project.model_project_task"/>
+            <field name="binding_view_types">list,form</field>
+            <field name="state">code</field>
+            <field name="code">
+                if records:
+                    ganging_engine = env['transfer.ganging.engine']
+                    action = ganging_engine.analyze_and_gang_tasks(records)
+                else:
+                    action = {
+                        'type': 'ir.actions.client',
+                        'tag': 'display_notification',
+                        'params': {
+                            'message': 'No tasks selected for analysis',
+                            'type': 'warning'
+                        }
+                    }
+            </field>
+        </record>
+    </data>
+</odoo>

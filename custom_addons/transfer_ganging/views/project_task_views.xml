@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Enhanced Task Form View -->
+        <record id="view_task_form_inherit_transfer" model="ir.ui.view">
+            <field name="name">project.task.form.inherit.transfer</field>
+            <field name="model">project.task</field>
+            <field name="inherit_id" ref="project.view_task_form2"/>
+            <field name="arch" type="xml">
+                <xpath expr="//header" position="inside">
+                    <button name="action_analyze_and_gang_tasks" type="object" 
+                            string="Analyze and Gang Tasks" 
+                            class="btn-primary"
+                            groups="base.group_user"/>
+                </xpath>
+                <xpath expr="//field[@name='tag_ids']" position="after">
+                    <group string="Transfer Details" col="4">
+                        <field name="transfer_product_type"/>
+                        <field name="transfer_size"/>
+                        <field name="color_variant" attrs="{'invisible': [('transfer_product_type', '!=', 'single_colour')]}"/>
+                        <field name="transfer_quantity"/>
+                        <field name="deadline_date"/>
+                    </group>
+                    <group string="Ganging Analysis" col="4">
+                        <field name="is_cost_effective" readonly="1"/>
+                        <field name="estimated_waste_cost" readonly="1"/>
+                        <field name="estimated_screen_cost"/>
+                        <field name="gang_priority" readonly="1"/>
+                    </group>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- Enhanced Task Tree View -->
+        <record id="view_task_tree_inherit_transfer" model="ir.ui.view">
+            <field name="name">project.task.tree.inherit.transfer</field>
+            <field name="model">project.task</field>
+            <field name="inherit_id" ref="project.view_task_tree2"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='name']" position="after">
+                    <field name="transfer_product_type"/>
+                    <field name="transfer_size"/>
+                    <field name="transfer_quantity"/>
+                    <field name="deadline_date"/>
+                    <field name="is_cost_effective"/>
+                    <field name="gang_priority"/>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- Enhanced Kanban View -->
+        <record id="view_task_kanban_inherit_transfer" model="ir.ui.view">
+            <field name="name">project.task.kanban.inherit.transfer</field>
+            <field name="model">project.task</field>
+            <field name="inherit_id" ref="project.view_task_kanban"/>
+            <field name="arch" type="xml">
+                <xpath expr="//div[@class='oe_kanban_details']" position="inside">
+                    <div t-if="record.transfer_product_type.raw_value">
+                        <i class="fa fa-print"/> 
+                        <field name="transfer_product_type"/> - 
+                        <field name="transfer_size"/> x 
+                        <field name="transfer_quantity"/>
+                    </div>
+                    <div t-if="record.deadline_date.raw_value" class="text-muted">
+                        <i class="fa fa-clock-o"/> 
+                        <field name="deadline_date"/>
+                    </div>
+                    <div t-if="record.is_cost_effective.raw_value" class="text-success">
+                        <i class="fa fa-check"/> Cost Effective
+                    </div>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

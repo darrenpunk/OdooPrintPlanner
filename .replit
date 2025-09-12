@@ -5,4 +5,36 @@ integrations = ["python_database:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["freetype", "git", "glibcLocales", "lcms2", "libffi", "libimagequant", "libjpeg", "libpng", "libpq", "libtiff", "libwebp", "libxcrypt", "libxml2", "libxslt", "nodejs", "openjpeg", "postgresql", "tcl", "tk", "wkhtmltopdf", "xcodebuild", "zlib"]
+packages = ["cyrus_sasl", "freetype", "git", "glibcLocales", "lcms2", "libev", "libffi", "libimagequant", "libjpeg", "libpng", "libpq", "libtiff", "libwebp", "libxcrypt", "libxml2", "libxslt", "nodejs", "openjpeg", "openldap", "postgresql", "tcl", "tk", "wkhtmltopdf", "xcodebuild", "zlib"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Odoo Server"
+
+[[workflows.workflow]]
+name = "Odoo Server"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd odoo && python3 odoo-bin --config=../odoo.conf -d transfer_db --init=base,project,transfer_ganging"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 36213
+externalPort = 3000
