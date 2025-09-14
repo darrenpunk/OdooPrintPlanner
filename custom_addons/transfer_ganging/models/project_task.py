@@ -7,17 +7,17 @@ SHEET_W_MM = 438  # Width in mm
 SHEET_H_MM = 310  # Height in mm
 SHEET_AREA_MM2 = SHEET_W_MM * SHEET_H_MM  # 135,780 mm²
 
-# Transfer size dimensions (actual crop sizes with bleed)
+# Transfer size dimensions (actual crop sizes with bleed from production screenshots)
 SIZE_DIMS = {
     'a3': (297, 420),       # A3 standard (not ganged)
-    'a4': (309, 219),       # A4 crop size with bleed
-    'a5': (154, 219),       # A5 crop size with bleed
-    'a6': (105, 148),       # A6 standard
-    '295x100': (295, 100),  # Large banner
-    '95x95': (95, 95),      # Square format
-    '100x70': (100, 70),    # Business card
-    '60x60': (60, 60),      # Small square
-    '290x140': (290, 140),  # Wide format
+    'a4': (309, 219),       # A4 crop size with bleed (confirmed)
+    'a5': (154, 219),       # A5 crop size with bleed (confirmed)
+    'a6': (154, 110),       # A6 actual: 154.5×109.75mm → rounded to 154×110
+    '295x100': (309, 110),  # Actual: 309×109.75mm → rounded to 309×110
+    '95x95': (103, 110),    # Actual: 103×109.75mm → rounded to 103×110
+    '100x70': (77, 110),    # Actual: 77.25×109.75mm → rounded to 77×110
+    '60x60': (77, 73),      # Actual: 77.25×73.17mm → rounded to 77×73
+    '290x140': (309, 146),  # Corrected dimensions as specified
 }
 
 def get_size_dims_mm(size):
