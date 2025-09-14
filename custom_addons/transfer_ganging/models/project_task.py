@@ -213,7 +213,7 @@ class ProjectTask(models.Model):
             '295x100': 4, # 1-4 per A3
             '95x95': 12,  # 1-12 per A3
             '100x70': 16, # 1-16 per A3
-            '60x60': 24,  # 1-24 per A3
+            '60x60': 12,  # 1-12 per A3
             '290x140': 2, # 1-2 per A3
         }
         return size_mapping.get(size, 0)

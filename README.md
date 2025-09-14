@@ -27,10 +27,10 @@ An intelligent Odoo 16 module that automatically organizes transfer printing tas
 | A3 | 1 | Cannot be ganged |
 | A4 | 1-2 | Optimal ganging size |
 | A5 | 1-4 | High efficiency potential |
-| A6 | 1-6 | Maximum sheet utilization |
+| A6 | 1-8 | Maximum sheet utilization |
 | 295x100 | 1-2 | Large format |
-| 95x95 | 1-8 | Small square format |
-| 100x70 | 1-6 | Business card size |
+| 95x95 | 1-12 | Small square format |
+| 100x70 | 1-16 | Business card size |
 | 60x60 | 1-12 | Highest density |
 | 290x140 | 1-2 | Wide format |
 
