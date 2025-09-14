@@ -1,14 +1,17 @@
 # Odoo Transfer Printing Ganging Optimization Module
 
-An intelligent Odoo 16 module that automatically organizes transfer printing tasks with optimal ganging strategies. The system analyzes incoming orders and groups them into existing LAY-A1 to LAY-Z2 columns based on cost-effectiveness, product compatibility, and deadline urgency.
+An intelligent Odoo 16 module that automatically organizes transfer printing tasks with optimal ganging strategies using actual production specifications. The system analyzes incoming orders and groups them into existing LAY-A1 to LAY-Z2 columns with 99.5% sheet utilization, respecting no-rotation constraints and exact crop dimensions.
 
 ## 🎯 Features
 
-- **Smart Ganging Algorithm**: Automatically groups compatible tasks for optimal A3 sheet utilization
+- **Production-Accurate Ganging**: Uses exact 310×440mm sheet dimensions and real crop sizes from production
+- **No-Rotation Constraint**: Respects exact crop orientations without rotation for production accuracy
+- **99.5% Sheet Utilization**: Achieves near-perfect efficiency with <1% waste across all combinations
+- **Geometric Validation**: Shelf-packing algorithm ensures all combinations are physically feasible
+- **100+ Viable Combinations**: Comprehensive analysis of single-size and mixed-size options
 - **Product Compatibility Rules**: Handles 4 product types with specific ganging constraints
 - **Cost Intelligence**: Only gangs when waste cost < screen setup cost, unless deadline critical
-- **Size Support**: All 9 document sizes with precise A3 sheet fitting calculations
-- **Deadline Management**: Prioritizes urgent orders even if not immediately cost-effective
+- **Combination Analysis**: Built-in analyzer shows all possible layout combinations
 - **LAY Column Integration**: Seamlessly assigns tasks to your existing LAY-A1 through LAY-Z2 workflow
 
 ## 📋 Product Types & Compatibility Rules
@@ -20,19 +23,26 @@ An intelligent Odoo 16 module that automatically organizes transfer printing tas
 | Metal | Silver color only | Metal transfers isolated to silver |
 | Zero | None (isolated) | Zero transfers never gang with others |
 
-## 📏 Supported Transfer Sizes
+## 📏 Transfer Sizes & Production Specifications
 
-| Size | Fits per A3 Sheet | Notes |
-|------|-------------------|-------|
-| A3 | 1 | Cannot be ganged |
-| A4 | 1-2 | Optimal ganging size |
-| A5 | 1-4 | High efficiency potential |
-| A6 | 1-8 | 2 across x 4 down (154x109mm crop) |
-| 295x100 | 1-4 | 1 across x 4 down (309x109mm crop) |
-| 95x95 | 1-12 | 3 across x 4 down (103x109mm crop) |
-| 100x70 | 1-32 | 4 across x 8 down (77x109mm crop) |
-| 60x60 | 1-24 | 4 across x 6 down (77x63mm crop) |
-| 290x140 | 1-3 | 1 across x 3 down |
+**Sheet Dimensions**: 310×440mm (136,400 mm²) with no gutters (bleed included in crop dimensions)
+
+| Size | Crop Dimensions | Max per Sheet | Layout | Utilization |
+|------|-----------------|---------------|--------|-------------|
+| A3 | 297×420mm | 0 | Cannot be ganged | N/A |
+| A4 | 309×219.5mm | **2** | 1×2 | 99.5% |
+| A5 | 154.5×219.22mm | **4** | 2×2 | 99.3% |
+| A6 | 154.5×109.75mm | **8** | 2×4 | 99.5% |
+| 295×100 | 309×109.75mm | **4** | 1×4 | 99.5% |
+| 290×140 | 309×146mm | **3** | 1×3 | 99.2% |
+| 95×95 | 103×109.75mm | **12** | 3×4 | 99.5% |
+| 100×70 | 77.25×109.75mm | **16** | 4×4 | 99.5% |
+| 60×60 | 77.25×73.17mm | **24** | 4×6 | 99.5% |
+
+**Key Features**:
+- ✅ **No Rotation**: Items placed in exact orientation only
+- ✅ **Exact Dimensions**: Based on actual production crop sizes with bleed
+- ✅ **Geometric Validation**: All layouts physically verified with shelf-packing
 
 ## 🚀 Installation
 
@@ -87,6 +97,11 @@ No additional configuration needed - the module extends existing Project Tasks w
 1. Open any project task
 2. Click the **"Analyze and Gang Tasks"** button in the header
 3. System analyzes all unplanned transfer tasks
+
+**Combination Analysis:**
+1. Use the **"Generate Combination Analysis"** button to see all viable layouts
+2. View 100+ possible combinations with utilization percentages
+3. See optimal mixed-size combinations (e.g., 1×A4 + 4×A6)
 
 **Automatic Analysis:**
 - The system can be configured to run automatically via scheduled actions
@@ -164,27 +179,36 @@ The system evaluates each potential combination:
 - Set deadline date to today or earlier
 - System will gang critical tasks even if not cost-effective
 
-## 🎯 Best Practices
+## 🎯 Production Optimization
 
-### 1. Deadline Management
+### 1. Top Mixed-Size Combinations (99.5% Utilization)
+
+**Most Practical for Production:**
+- **1×A4 + 4×A6** (5 items total) - Perfect for mixed medium/small orders
+- **2×295×100 + 1×A4** (3 items total) - Efficient banner + standard mix
+- **6×95×95 + 1×A4** (7 items total) - Good for square format needs
+- **12×60×60 + 1×A4** (13 items total) - High-density small format mix
+- **12×100×70 + 2×A6** (14 items total) - Maximum small format density
+
+**High-Volume Options:**
+- **24×60×60** - Maximum single-size density
+- **16×100×70** - High rectangular format density
+- **12×95×95** - Good square format volume
+
+### 2. Deadline Management
 - Set realistic deadline dates on incoming tasks
 - Use deadline urgency to override cost decisions when needed
 - Monitor critical tasks to ensure timely processing
 
-### 2. LAY Column Capacity
+### 3. LAY Column Capacity
 - System limits 20 tasks per LAY column by default
 - Monitor column capacity during peak periods
 - Consider adding more LAY columns if needed consistently
 
-### 3. Cost Optimization
-- Review waste vs screen cost calculations periodically
-- Adjust cost parameters if ganging behavior needs tuning
-- Balance cost efficiency with production speed
-
-### 4. Regular Analysis
-- Run ganging analysis regularly throughout the day
-- Consider scheduling automatic analysis every hour
-- Monitor for tasks waiting too long for ganging opportunities
+### 4. Utilization Monitoring
+- All optimal combinations achieve 99.5% sheet utilization
+- Waste typically <750mm² per sheet (less than 1%)
+- Use combination analysis to find best layouts for your order mix
 
 ## 🔧 Advanced Configuration
 
@@ -215,7 +239,17 @@ For technical issues or customization requests, refer to the module's code docum
 
 ---
 
-**Version**: 1.0.0  
+## 📊 System Performance
+
+- **Sheet Utilization**: 99.5% average across optimal combinations
+- **Waste Per Sheet**: 743-1058mm² (less than 1%)
+- **Viable Combinations**: 100+ validated mixed-size options
+- **Production Accuracy**: Exact crop dimensions with no-rotation constraint
+- **Geometric Validation**: All combinations physically verified
+
+---
+
+**Version**: 2.0.0 - Production Ready  
 **Compatible**: Odoo 16  
 **License**: LGPL-3  
-**Author**: Transfer Ganging Module
+**Author**: Transfer Ganging Optimization Module
