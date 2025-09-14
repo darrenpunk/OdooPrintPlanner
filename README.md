@@ -27,11 +27,11 @@ An intelligent Odoo 16 module that automatically organizes transfer printing tas
 | A3 | 1 | Cannot be ganged |
 | A4 | 1-2 | Optimal ganging size |
 | A5 | 1-4 | High efficiency potential |
-| A6 | 1-8 | Maximum sheet utilization |
-| 295x100 | 1-2 | Large format |
-| 95x95 | 1-12 | Small square format |
-| 100x70 | 1-16 | Business card size |
-| 60x60 | 1-12 | Highest density |
+| A6 | 1-8 | 2 across x 4 down (154x109mm crop) |
+| 295x100 | 1-2 | 1 across x 2 down (309x109mm crop) |
+| 95x95 | 1-18 | 3 across x 6 down (103x109mm crop) |
+| 100x70 | 1-32 | 4 across x 8 down (77x109mm crop) |
+| 60x60 | 1-12 | 4 across x 3 down (77x63mm crop) |
 | 290x140 | 1-2 | Wide format |
 
 ## 🚀 Installation
