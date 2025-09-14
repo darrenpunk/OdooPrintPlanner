@@ -1,6 +1,11 @@
 from odoo import models, fields, api
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
+
+# Production A3 sheet dimensions (actual size)
+SHEET_W_MM = 438  # Width in mm
+SHEET_H_MM = 310  # Height in mm
+SHEET_AREA_MM2 = SHEET_W_MM * SHEET_H_MM  # 135,780 mm²
 
 _logger = logging.getLogger(__name__)
 
@@ -203,20 +208,47 @@ class ProjectTask(models.Model):
             
             task.gang_priority = priority
     
-    def _get_fits_on_a3(self, size):
-        """Return how many of this size can fit on an A3 sheet"""
-        size_mapping = {
-            'a3': 0,      # A3 cannot be ganged
-            'a4': 2,      # 1-2 per A3
-            'a5': 4,      # 1-4 per A3
-            'a6': 8,      # 2 across x 4 down (154x109mm crop)
-            '295x100': 4, # 1 across x 4 down (309x109mm crop)
-            '95x95': 12,  # 3 across x 4 down (103x109mm crop)
-            '100x70': 32, # 4 across x 8 down (77x109mm crop)
-            '60x60': 24,  # 4 across x 6 down (77x63mm crop)
-            '290x140': 3, # 1 across x 3 down
+    def _get_size_dims_mm(self, size):
+        """Return dimensions (width, height) in mm for each transfer size"""
+        size_dims = {
+            'a3': (297, 420),    # A3 standard
+            'a4': (210, 297),    # A4 standard  
+            'a5': (148, 210),    # A5 standard
+            'a6': (105, 148),    # A6 standard
+            '295x100': (295, 100),  # Large banner
+            '95x95': (95, 95),      # Square format
+            '100x70': (100, 70),    # Business card
+            '60x60': (60, 60),      # Small square
+            '290x140': (290, 140),  # Wide format
         }
-        return size_mapping.get(size, 0)
+        return size_dims.get(size, (0, 0))
+    
+    def _get_fits_on_a3(self, size, gutter_x=2, gutter_y=2, allow_rotate=True):
+        """Calculate how many items fit on A3 sheet using actual 310x438mm dimensions"""
+        if size == 'a3':
+            return 0  # A3 cannot be ganged
+        
+        item_w, item_h = self._get_size_dims_mm(size)
+        if item_w <= 0 or item_h <= 0:
+            return 0
+        
+        def fit_count(sheet_w, sheet_h, item_w, item_h):
+            """Calculate fit count with gutters"""
+            if item_w + gutter_x > sheet_w or item_h + gutter_y > sheet_h:
+                return 0
+            across = max(0, (sheet_w + gutter_x) // (item_w + gutter_x))
+            down = max(0, (sheet_h + gutter_y) // (item_h + gutter_y))
+            return across * down
+        
+        # Try normal orientation
+        count_normal = fit_count(SHEET_W_MM, SHEET_H_MM, item_w, item_h)
+        
+        # Try rotated orientation if allowed
+        count_rotated = 0
+        if allow_rotate and item_w != item_h:  # Don't rotate squares unnecessarily
+            count_rotated = fit_count(SHEET_W_MM, SHEET_H_MM, item_h, item_w)
+        
+        return max(count_normal, count_rotated)
     
     def action_analyze_and_gang_tasks(self):
         """Analyze and gang tasks - can be called on single task or multiple tasks"""

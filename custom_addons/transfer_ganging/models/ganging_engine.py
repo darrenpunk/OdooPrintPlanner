@@ -1,6 +1,9 @@
 from odoo import models, fields, api
 import logging
 
+# Import sheet dimensions from project_task
+from . import project_task
+
 _logger = logging.getLogger(__name__)
 
 class TransferGangingEngine(models.Model):
@@ -238,71 +241,92 @@ class TransferGangingEngine(models.Model):
         return best_combination
     
     def _get_mixed_layout_templates(self):
-        """Define physically verified mixed-size layout templates for A3 sheets"""
-        return [
+        """Define mixed-size layout templates with dynamic utilization calculation"""
+        templates = [
             # High-value mixed combinations (user's examples)
             {
                 'name': '1×A4 + 1×A5 + 4×100x70',
                 'layout': {'a4': 1, 'a5': 1, '100x70': 4},
-                'utilization': 0.75,  # Estimated efficiency
                 'description': 'Optimal for mixed medium sizes'
             },
             {
                 'name': '2×A5 + 2×A6 + 4×100x70',
                 'layout': {'a5': 2, 'a6': 2, '100x70': 4},
-                'utilization': 0.80,
                 'description': 'High density small-medium mix'
             },
             {
                 'name': '1×A4 + 2×A6 + 8×100x70',
                 'layout': {'a4': 1, 'a6': 2, '100x70': 8},
-                'utilization': 0.85,
                 'description': 'Maximum 100x70 density'
             },
             {
                 'name': '1×A5 + 3×A6 + 6×100x70',
                 'layout': {'a5': 1, 'a6': 3, '100x70': 6},
-                'utilization': 0.78,
                 'description': 'Balanced small size mix'
             },
             {
                 'name': '1×A4 + 6×95x95',
                 'layout': {'a4': 1, '95x95': 6},
-                'utilization': 0.70,
                 'description': 'A4 with square formats'
             },
             {
                 'name': '2×A5 + 8×95x95',
                 'layout': {'a5': 2, '95x95': 8},
-                'utilization': 0.75,
                 'description': 'A5 with square formats'
             },
             {
                 'name': '1×295x100 + 1×A6 + 8×60x60',
                 'layout': {'295x100': 1, 'a6': 1, '60x60': 8},
-                'utilization': 0.72,
                 'description': 'Large format with small items'
             },
-            # Single-size high-efficiency options
+            # Single-size high-efficiency options  
             {
                 'name': '2×A4 only',
                 'layout': {'a4': 2},
-                'utilization': 0.90,
                 'description': 'Pure A4 efficiency'
             },
             {
                 'name': '4×A5 only',
                 'layout': {'a5': 4},
-                'utilization': 0.85,
                 'description': 'Pure A5 efficiency'
             },
             {
-                'name': '32×100x70 only',
-                'layout': {'100x70': 32},
-                'utilization': 0.95,
+                'name': 'Max 100x70 only',
+                'layout': {'100x70': 40},  # Will be verified by actual fit calculation
                 'description': 'Maximum small format density'
             }
         ]
+        
+        # Calculate dynamic utilization and filter feasible templates
+        feasible_templates = []
+        for template in templates:
+            utilization = self._calculate_template_utilization(template['layout'])
+            if utilization > 0 and utilization <= 1.0:  # Must be physically feasible
+                template['utilization'] = utilization
+                feasible_templates.append(template)
+        
+        return feasible_templates
+    
+    def _calculate_template_utilization(self, layout):
+        """Calculate actual utilization for a template layout using 310×438mm sheet"""
+        total_area_used = 0
+        
+        # Get a sample task to access _get_size_dims_mm method
+        sample_task = self.env['project.task'].search([], limit=1)
+        if not sample_task:
+            return 0
+        
+        for size, quantity in layout.items():
+            item_w, item_h = sample_task._get_size_dims_mm(size)
+            item_area = item_w * item_h
+            total_area_used += quantity * item_area
+        
+        # Use actual 310×438mm sheet area  
+        sheet_area = project_task.SHEET_AREA_MM2  # 135,780 mm²
+        utilization = total_area_used / sheet_area
+        
+        # Return 0 if physically impossible (over 100% utilization)
+        return utilization if utilization <= 1.0 else 0
     
     def _find_single_size_combination(self, available_tasks):
         """Fallback to single-size combinations when mixed templates don't work"""
