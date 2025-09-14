@@ -2,22 +2,22 @@ from odoo import models, fields, api
 from datetime import datetime
 import logging
 
-# Production A3 sheet dimensions (actual size)
-SHEET_W_MM = 438  # Width in mm
-SHEET_H_MM = 310  # Height in mm
-SHEET_AREA_MM2 = SHEET_W_MM * SHEET_H_MM  # 135,780 mm²
+# Production A3 sheet dimensions (corrected from screenshots)
+SHEET_W_MM = 310  # Width in mm (was 438)
+SHEET_H_MM = 440  # Height in mm (was 310)
+SHEET_AREA_MM2 = SHEET_W_MM * SHEET_H_MM  # 136,400 mm²
 
-# Transfer size dimensions (actual crop sizes with bleed from production screenshots)
+# Transfer size dimensions (exact fractional dimensions from production screenshots)
 SIZE_DIMS = {
-    'a3': (297, 420),       # A3 standard (not ganged)
-    'a4': (309, 219),       # A4 crop size with bleed (confirmed)
-    'a5': (154, 219),       # A5 crop size with bleed (confirmed)
-    'a6': (154, 110),       # A6 actual: 154.5×109.75mm → rounded to 154×110
-    '295x100': (309, 110),  # Actual: 309×109.75mm → rounded to 309×110
-    '95x95': (103, 110),    # Actual: 103×109.75mm → rounded to 103×110
-    '100x70': (77, 110),    # Actual: 77.25×109.75mm → rounded to 77×110
-    '60x60': (77, 73),      # Actual: 77.25×73.17mm → rounded to 77×73
-    '290x140': (309, 146),  # Corrected dimensions as specified
+    'a3': (297, 420),         # A3 standard (not ganged)
+    'a4': (309, 219.5),       # A4 exact from screenshot
+    'a5': (154.5, 219.22),    # A5 exact from screenshot
+    'a6': (154.5, 109.75),    # A6 exact from screenshot
+    '295x100': (309, 109.75), # 295×100 exact from screenshot
+    '95x95': (103, 109.75),   # 95×95 exact from screenshot
+    '100x70': (77.25, 109.75),# 100×70 exact from screenshot
+    '60x60': (77.25, 73.17),  # 60×60 exact from screenshot
+    '290x140': (309, 146),     # 290×140 crop=309×146 as specified by user
 }
 
 def get_size_dims_mm(size):
@@ -229,8 +229,8 @@ class ProjectTask(models.Model):
         """Return dimensions (width, height) in mm for each transfer size"""
         return get_size_dims_mm(size)
     
-    def _get_fits_on_a3(self, size, gutter_x=2, gutter_y=2, allow_rotate=False):
-        """Calculate how many items fit on A3 sheet - NO ROTATION ALLOWED"""
+    def _get_fits_on_a3(self, size, gutter_x=0, gutter_y=0, allow_rotate=False):
+        """Calculate how many items fit on A3 sheet - NO ROTATION, NO GUTTERS (bleed included in crop)"""
         if size == 'a3':
             return 0  # A3 cannot be ganged
         
@@ -238,13 +238,13 @@ class ProjectTask(models.Model):
         if item_w <= 0 or item_h <= 0:
             return 0
         
-        # Check if item fits at all (with gutters)
-        if item_w + gutter_x > SHEET_W_MM or item_h + gutter_y > SHEET_H_MM:
+        # Check if item fits at all (no gutters since bleed is included in crop dimensions)
+        if item_w > SHEET_W_MM or item_h > SHEET_H_MM:
             return 0
         
-        # Calculate fit count - NO ROTATION, exact orientation only
-        across = max(0, (SHEET_W_MM + gutter_x) // (item_w + gutter_x))
-        down = max(0, (SHEET_H_MM + gutter_y) // (item_h + gutter_y))
+        # Calculate fit count - NO ROTATION, exact orientation only, no gutters
+        across = max(0, int(SHEET_W_MM // item_w))
+        down = max(0, int(SHEET_H_MM // item_h))
         
         return across * down
     

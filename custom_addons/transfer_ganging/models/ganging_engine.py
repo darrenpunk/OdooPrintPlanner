@@ -322,8 +322,8 @@ class TransferGangingEngine(models.Model):
         # Sort items by height (tallest first) for better shelf packing
         items_to_place.sort(key=lambda x: x[1], reverse=True)
         
-        # Shelf packing with gutters
-        gutter_x, gutter_y = 2, 2
+        # Shelf packing without gutters (bleed included in crop dimensions)
+        gutter_x, gutter_y = 0, 0
         shelves = []  # [(current_width, shelf_height)]
         total_used_area = 0
         
