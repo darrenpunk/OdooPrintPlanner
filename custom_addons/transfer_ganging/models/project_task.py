@@ -210,11 +210,11 @@ class ProjectTask(models.Model):
             'a4': 2,      # 1-2 per A3
             'a5': 4,      # 1-4 per A3
             'a6': 8,      # 2 across x 4 down (154x109mm crop)
-            '295x100': 2, # 1 across x 2 down (309x109mm crop)
-            '95x95': 18,  # 3 across x 6 down (103x109mm crop)
+            '295x100': 4, # 1 across x 4 down (309x109mm crop)
+            '95x95': 12,  # 3 across x 4 down (103x109mm crop)
             '100x70': 32, # 4 across x 8 down (77x109mm crop)
-            '60x60': 12,  # 4 across x 3 down (77x63mm crop)
-            '290x140': 2, # 1-2 per A3
+            '60x60': 24,  # 4 across x 6 down (77x63mm crop)
+            '290x140': 3, # 1 across x 3 down
         }
         return size_mapping.get(size, 0)
     
