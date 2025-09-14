@@ -12,6 +12,10 @@
                             string="Analyze and Gang Tasks" 
                             class="btn-primary"
                             groups="base.group_user"/>
+                    <button name="action_analyze_all_combinations" type="object" 
+                            string="Generate Combination Analysis" 
+                            class="btn-secondary"
+                            groups="base.group_user"/>
                 </xpath>
                 <xpath expr="//field[@name='tag_ids']" position="after">
                     <group string="Transfer Details" col="4">

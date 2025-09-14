@@ -274,3 +274,8 @@ class ProjectTask(models.Model):
         
         ganging_engine = self.env['transfer.ganging.engine']
         return ganging_engine.analyze_and_gang_tasks(tasks_to_analyze)
+    
+    def action_analyze_all_combinations(self):
+        """Generate comprehensive analysis of all possible transfer ganging combinations"""
+        analyzer = self.env['transfer.combination.analyzer']
+        return analyzer.display_analysis_report()
