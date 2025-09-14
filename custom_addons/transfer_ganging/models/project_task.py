@@ -7,6 +7,23 @@ SHEET_W_MM = 438  # Width in mm
 SHEET_H_MM = 310  # Height in mm
 SHEET_AREA_MM2 = SHEET_W_MM * SHEET_H_MM  # 135,780 mm²
 
+# Transfer size dimensions (actual crop sizes with bleed)
+SIZE_DIMS = {
+    'a3': (297, 420),       # A3 standard (not ganged)
+    'a4': (309, 219),       # A4 crop size with bleed
+    'a5': (154, 219),       # A5 crop size with bleed
+    'a6': (105, 148),       # A6 standard
+    '295x100': (295, 100),  # Large banner
+    '95x95': (95, 95),      # Square format
+    '100x70': (100, 70),    # Business card
+    '60x60': (60, 60),      # Small square
+    '290x140': (290, 140),  # Wide format
+}
+
+def get_size_dims_mm(size):
+    """Get dimensions (width, height) in mm for any transfer size"""
+    return SIZE_DIMS.get(size, (0, 0))
+
 _logger = logging.getLogger(__name__)
 
 class ProjectTask(models.Model):
@@ -210,21 +227,10 @@ class ProjectTask(models.Model):
     
     def _get_size_dims_mm(self, size):
         """Return dimensions (width, height) in mm for each transfer size"""
-        size_dims = {
-            'a3': (297, 420),    # A3 standard
-            'a4': (210, 297),    # A4 standard  
-            'a5': (148, 210),    # A5 standard
-            'a6': (105, 148),    # A6 standard
-            '295x100': (295, 100),  # Large banner
-            '95x95': (95, 95),      # Square format
-            '100x70': (100, 70),    # Business card
-            '60x60': (60, 60),      # Small square
-            '290x140': (290, 140),  # Wide format
-        }
-        return size_dims.get(size, (0, 0))
+        return get_size_dims_mm(size)
     
-    def _get_fits_on_a3(self, size, gutter_x=2, gutter_y=2, allow_rotate=True):
-        """Calculate how many items fit on A3 sheet using actual 310x438mm dimensions"""
+    def _get_fits_on_a3(self, size, gutter_x=2, gutter_y=2, allow_rotate=False):
+        """Calculate how many items fit on A3 sheet - NO ROTATION ALLOWED"""
         if size == 'a3':
             return 0  # A3 cannot be ganged
         
@@ -232,23 +238,15 @@ class ProjectTask(models.Model):
         if item_w <= 0 or item_h <= 0:
             return 0
         
-        def fit_count(sheet_w, sheet_h, item_w, item_h):
-            """Calculate fit count with gutters"""
-            if item_w + gutter_x > sheet_w or item_h + gutter_y > sheet_h:
-                return 0
-            across = max(0, (sheet_w + gutter_x) // (item_w + gutter_x))
-            down = max(0, (sheet_h + gutter_y) // (item_h + gutter_y))
-            return across * down
+        # Check if item fits at all (with gutters)
+        if item_w + gutter_x > SHEET_W_MM or item_h + gutter_y > SHEET_H_MM:
+            return 0
         
-        # Try normal orientation
-        count_normal = fit_count(SHEET_W_MM, SHEET_H_MM, item_w, item_h)
+        # Calculate fit count - NO ROTATION, exact orientation only
+        across = max(0, (SHEET_W_MM + gutter_x) // (item_w + gutter_x))
+        down = max(0, (SHEET_H_MM + gutter_y) // (item_h + gutter_y))
         
-        # Try rotated orientation if allowed
-        count_rotated = 0
-        if allow_rotate and item_w != item_h:  # Don't rotate squares unnecessarily
-            count_rotated = fit_count(SHEET_W_MM, SHEET_H_MM, item_h, item_w)
-        
-        return max(count_normal, count_rotated)
+        return across * down
     
     def action_analyze_and_gang_tasks(self):
         """Analyze and gang tasks - can be called on single task or multiple tasks"""

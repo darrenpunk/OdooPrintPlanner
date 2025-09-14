@@ -1,8 +1,9 @@
 from odoo import models, fields, api
 import logging
 
-# Import sheet dimensions from project_task
+# Import sheet dimensions and size mappings from project_task
 from . import project_task
+from .project_task import SHEET_W_MM, SHEET_H_MM, SHEET_AREA_MM2, get_size_dims_mm
 
 _logger = logging.getLogger(__name__)
 
@@ -308,24 +309,50 @@ class TransferGangingEngine(models.Model):
         return feasible_templates
     
     def _calculate_template_utilization(self, layout):
-        """Calculate actual utilization for a template layout using 310×438mm sheet"""
-        total_area_used = 0
-        
-        # Get a sample task to access _get_size_dims_mm method
-        sample_task = self.env['project.task'].search([], limit=1)
-        if not sample_task:
-            return 0
-        
+        """Calculate utilization using no-rotation bin-packing on 310×438mm sheet"""
+        # Use simple shelf packing algorithm (no rotation allowed)
+        items_to_place = []
         for size, quantity in layout.items():
-            item_w, item_h = sample_task._get_size_dims_mm(size)
-            item_area = item_w * item_h
-            total_area_used += quantity * item_area
+            item_w, item_h = get_size_dims_mm(size)
+            if item_w <= 0 or item_h <= 0:
+                return 0  # Invalid size
+            for _ in range(quantity):
+                items_to_place.append((item_w, item_h))
         
-        # Use actual 310×438mm sheet area  
-        sheet_area = project_task.SHEET_AREA_MM2  # 135,780 mm²
-        utilization = total_area_used / sheet_area
+        # Sort items by height (tallest first) for better shelf packing
+        items_to_place.sort(key=lambda x: x[1], reverse=True)
         
-        # Return 0 if physically impossible (over 100% utilization)
+        # Shelf packing with gutters
+        gutter_x, gutter_y = 2, 2
+        shelves = []  # [(current_width, shelf_height)]
+        total_used_area = 0
+        
+        for item_w, item_h in items_to_place:
+            placed = False
+            
+            # Try to place on existing shelf
+            for i, (shelf_width, shelf_height) in enumerate(shelves):
+                # Check if item fits on this shelf
+                if (shelf_width + gutter_x + item_w <= SHEET_W_MM and 
+                    item_h <= shelf_height):
+                    shelves[i] = (shelf_width + gutter_x + item_w, shelf_height)
+                    total_used_area += item_w * item_h
+                    placed = True
+                    break
+            
+            if not placed:
+                # Create new shelf
+                new_shelf_y = sum(s[1] + gutter_y for s in shelves)
+                if new_shelf_y + item_h <= SHEET_H_MM and item_w <= SHEET_W_MM:
+                    shelves.append((item_w, item_h))
+                    total_used_area += item_w * item_h
+                    placed = True
+            
+            if not placed:
+                return 0  # Cannot fit all items
+        
+        # Calculate utilization based on placed area
+        utilization = total_used_area / SHEET_AREA_MM2
         return utilization if utilization <= 1.0 else 0
     
     def _find_single_size_combination(self, available_tasks):
