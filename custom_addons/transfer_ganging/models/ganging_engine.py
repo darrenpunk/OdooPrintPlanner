@@ -54,20 +54,24 @@ class TransferGangingEngine(models.Model):
         groups = {}
         
         for task in tasks:
+            # Use parsing methods instead of custom fields
+            product_type = task.get_parsed_product_type()
+            color_variant = task.get_parsed_color_variant()
+            
             # Create compatibility key
-            if task.transfer_product_type == 'zero':
+            if product_type == 'zero':
                 # Zero transfers are always alone
                 key = f"zero_{task.id}"
-            elif task.transfer_product_type == 'full_colour':
+            elif product_type == 'full_colour':
                 key = "full_colour_white"  # Can gang with white single colour
-            elif task.transfer_product_type == 'single_colour':
-                if task.color_variant == 'white':
+            elif product_type == 'single_colour':
+                if color_variant == 'white':
                     key = "full_colour_white"  # Gang with full colour
-                elif task.color_variant == 'silver':
+                elif color_variant == 'silver':
                     key = "metal_silver"  # Can gang with metal
                 else:
-                    key = f"single_{task.color_variant}"
-            elif task.transfer_product_type == 'metal':
+                    key = f"single_{color_variant or 'unknown'}"
+            elif product_type == 'metal':
                 key = "metal_silver"  # Can gang with silver single colour
             else:
                 key = f"unknown_{task.id}"
@@ -84,7 +88,7 @@ class TransferGangingEngine(models.Model):
         unplanned_count = 0
         
         # Sort by priority (deadline urgency + cost effectiveness)
-        sorted_tasks = sorted(tasks, key=lambda t: t.gang_priority, reverse=True)
+        sorted_tasks = sorted(tasks, key=lambda t: t.get_gang_priority(), reverse=True)
         
         # Try to find optimal ganging combinations
         remaining_tasks = list(sorted_tasks)
@@ -130,7 +134,7 @@ class TransferGangingEngine(models.Model):
                 critical_items = []
                 for item in best_combination:
                     task = item['task'] if isinstance(item, dict) else item
-                    if task.gang_priority >= 100:
+                    if task.get_gang_priority() >= 100:
                         critical_items.append(item)
                 
                 if critical_items:
@@ -161,22 +165,23 @@ class TransferGangingEngine(models.Model):
             return []
         
         # Handle A3 size separately - cannot be ganged
-        a3_tasks = [t for t in tasks if t.transfer_size == 'a3']
+        a3_tasks = [t for t in tasks if t.get_parsed_transfer_size() == 'a3']
         if a3_tasks:
-            best_a3 = max(a3_tasks, key=lambda t: t.gang_priority)
+            best_a3 = max(a3_tasks, key=lambda t: t.get_gang_priority())
             return [{'task': best_a3, 'quantity': 1}]
         
         # Create available task inventory
         available_tasks = {}
         for task in tasks:
-            if task.transfer_size != 'a3' and task.remaining_quantity > 0:
-                size = task.transfer_size
+            size = task.get_parsed_transfer_size()
+            remaining_qty = task.get_remaining_quantity()
+            if size != 'a3' and remaining_qty > 0:
                 if size not in available_tasks:
                     available_tasks[size] = []
                 available_tasks[size].append({
                     'task': task,
-                    'remaining_qty': task.remaining_quantity,
-                    'priority': task.gang_priority
+                    'remaining_qty': remaining_qty,
+                    'priority': task.get_gang_priority()
                 })
         
         if not available_tasks:
@@ -417,22 +422,30 @@ class TransferGangingEngine(models.Model):
                 total_quantity += quantity
             else:
                 tasks.append(item)
-                total_quantity += getattr(item, 'remaining_quantity', 1)
+                total_quantity += item.get_remaining_quantity()
         
         # Gang if any task has critical deadline
-        if any(t.gang_priority >= 100 for t in tasks):
+        if any(t.get_gang_priority() >= 100 for t in tasks):
             return True
         
         # Calculate per-sheet costs
         if not tasks:
             return False
         
-        # Use average costs weighted by quantities
-        avg_waste_cost = sum(t.estimated_waste_cost for t in tasks) / len(tasks)
-        avg_screen_cost = sum(t.estimated_screen_cost for t in tasks) / len(tasks)
+        # Use project cost settings for cost effectiveness
+        first_task = tasks[0]
+        project = first_task.project_id
         
-        # Gang if combination is cost-effective (waste cost < screen setup cost)
-        return avg_waste_cost < avg_screen_cost
+        # Calculate if this combination is cost effective
+        cost_effective_count = 0
+        for task in tasks:
+            size = task.get_parsed_transfer_size()
+            quantity = task.get_parsed_quantity()
+            if task.is_cost_effective_to_gang(size, quantity):
+                cost_effective_count += 1
+        
+        # Gang if majority of tasks are cost effective
+        return cost_effective_count >= len(tasks) / 2
     
     def _get_lay_stages(self):
         """Get available LAY stages in proper order (LAY-A1 to LAY-Z1, then LAY-A2 to LAY-Z2)"""

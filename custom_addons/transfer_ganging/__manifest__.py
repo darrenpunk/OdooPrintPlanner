@@ -17,7 +17,7 @@
     'depends': ['base', 'project'],
     'data': [
         'security/ir.model.access.csv',
-        'views/project_task_views.xml',
+        'views/project_project_views.xml',
         'data/server_actions.xml',
     ],
     'installable': True,

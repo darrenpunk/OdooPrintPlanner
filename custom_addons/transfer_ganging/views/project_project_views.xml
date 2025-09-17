@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Enhanced Project Form View with Ganging Buttons -->
+        <record id="view_project_form_inherit_transfer" model="ir.ui.view">
+            <field name="name">project.project.form.inherit.transfer</field>
+            <field name="model">project.project</field>
+            <field name="inherit_id" ref="project.edit_project"/>
+            <field name="arch" type="xml">
+                <xpath expr="//header" position="inside">
+                    <button name="action_analyze_and_gang_tasks" type="object" 
+                            string="Analyze and Gang Tasks" 
+                            class="btn-primary"
+                            groups="base.group_user"/>
+                    <button name="action_analyze_all_combinations" type="object" 
+                            string="Generate Combination Analysis" 
+                            class="btn-secondary"
+                            groups="base.group_user"/>
+                </xpath>
+                <xpath expr="//group[@name='group_alias']" position="after">
+                    <group string="Transfer Ganging Configuration" col="4">
+                        <field name="gang_screen_cost"/>
+                        <field name="gang_a3_sheet_cost"/>
+                    </group>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- Enhanced Project Tree View -->
+        <record id="view_project_tree_inherit_transfer" model="ir.ui.view">
+            <field name="name">project.project.tree.inherit.transfer</field>
+            <field name="model">project.project</field>
+            <field name="inherit_id" ref="project.view_project"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='name']" position="after">
+                    <field name="gang_screen_cost" optional="hide"/>
+                    <field name="gang_a3_sheet_cost" optional="hide"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>
