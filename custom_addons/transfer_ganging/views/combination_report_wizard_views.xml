@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Combination Report Wizard Form View -->
+        <record id="view_combination_report_wizard_form" model="ir.ui.view">
+            <field name="name">transfer.combination.report.wizard.form</field>
+            <field name="model">transfer.combination.report.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Transfer Ganging Analysis Report" create="false" edit="false">
+                    <header>
+                        <button string="Export CSV" name="action_export_to_csv" type="object" class="btn-secondary" groups="base.group_user"/>
+                        <button string="Close" special="cancel" class="btn-primary"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <label for="name" class="oe_edit_only"/>
+                            <h1><field name="name" readonly="1"/></h1>
+                        </div>
+                        
+                        <!-- Summary Statistics -->
+                        <div class="o_group">
+                            <group string="Sheet Information" col="2">
+                                <field name="sheet_dimensions"/>
+                            </group>
+                        </div>
+                        
+                        <div class="o_group">
+                            <group string="Summary Statistics" col="4">
+                                <field name="total_single_combinations"/>
+                                <field name="total_mixed_combinations"/>
+                                <field name="highest_single_utilization" widget="percentage"/>
+                                <field name="highest_mixed_utilization" widget="percentage"/>
+                                <field name="combinations_over_90_percent"/>
+                                <field name="combinations_over_95_percent"/>
+                            </group>
+                        </div>
+                        
+                        <!-- Report Content -->
+                        <notebook>
+                            <page string="Single-Size Analysis" name="single_combinations">
+                                <field name="single_combinations_html" nolabel="1" widget="html" readonly="1"/>
+                            </page>
+                            <page string="Mixed-Size Analysis" name="mixed_combinations">
+                                <field name="mixed_combinations_html" nolabel="1" widget="html" readonly="1"/>
+                            </page>
+                        </notebook>
+                        
+                        <!-- Hidden fields for data storage -->
+                        <group invisible="1">
+                            <field name="single_combinations_data"/>
+                            <field name="mixed_combinations_data"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+    </data>
+</odoo>

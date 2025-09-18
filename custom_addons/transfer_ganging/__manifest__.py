@@ -18,6 +18,7 @@
     'data': [
         'security/ir.model.access.csv',
         'views/project_project_views.xml',
+        'views/combination_report_wizard_views.xml',
         'data/server_actions.xml',
     ],
     'installable': True,

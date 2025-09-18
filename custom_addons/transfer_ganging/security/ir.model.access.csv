@@ -1,2 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_transfer_ganging_engine,transfer.ganging.engine,model_transfer_ganging_engine,base.group_user,1,1,1,1
+access_transfer_combination_analyzer,transfer.combination.analyzer,model_transfer_combination_analyzer,base.group_user,1,1,1,1
+access_transfer_combination_report_wizard,transfer.combination.report.wizard,model_transfer_combination_report_wizard,base.group_user,1,1,1,1
