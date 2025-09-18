@@ -42,9 +42,11 @@ class ProjectTask(models.Model):
         name_lower = self.name.lower()
         
         # Look for product type indicators in task name
+        # Check full colour first - more specific patterns
         if 'full colour' in name_lower or 'full color' in name_lower or 'cmyk' in name_lower:
             return 'full_colour'
-        elif 'single colour' in name_lower or 'single color' in name_lower or 'single' in name_lower:
+        # Only check for single colour if full colour not found - be more specific
+        elif 'single colour' in name_lower or 'single color' in name_lower:
             return 'single_colour'
         elif 'metal' in name_lower or 'metallic' in name_lower:
             return 'metal'
@@ -125,28 +127,33 @@ class ProjectTask(models.Model):
         return None
     
     def get_parsed_quantity(self):
-        """Parse quantity from existing fields or task name"""
+        """Parse quantity from existing fields, task name, or description"""
         # First try to use planned_hours as quantity if it makes sense
         if self.planned_hours and self.planned_hours > 0 and self.planned_hours <= 10000:
             return int(self.planned_hours)
         
-        # Try to parse from task name using common patterns
-        if self.name:
-            # Look for patterns like "x50", "qty: 25", "25 pieces", etc.
+        # Try to parse from both task name and description
+        text_to_parse = (self.name or '') + ' ' + (self.description or '')
+        
+        if text_to_parse:
+            # Look for patterns like "x50", "qty: 25", "25 pieces", "Quantity Required: 20.00", etc.
             qty_patterns = [
-                r'\bx(\d+)\b',          # x50
-                r'\bqty:?\s*(\d+)\b',   # qty: 25
-                r'\b(\d+)\s*pieces?\b', # 25 pieces
-                r'\b(\d+)\s*pcs?\b',    # 25 pcs
-                r'\bquantity:?\s*(\d+)\b', # quantity: 25
+                r'\bquantity\s+required:?\s*(\d+(?:\.\d+)?)\b',  # Quantity Required: 20.00
+                r'\bx(\d+)\b',                                   # x50
+                r'\bqty:?\s*(\d+)\b',                           # qty: 25
+                r'\b(\d+)\s*pieces?\b',                         # 25 pieces
+                r'\b(\d+)\s*pcs?\b',                            # 25 pcs
+                r'\bquantity:?\s*(\d+)\b',                      # quantity: 25
+                r'\brequired:?\s*(\d+(?:\.\d+)?)\b',           # required: 20.00
             ]
             
             for pattern in qty_patterns:
-                match = re.search(pattern, self.name.lower())
+                match = re.search(pattern, text_to_parse.lower())
                 if match:
-                    qty = int(match.group(1))
-                    if 1 <= qty <= 10000:  # Reasonable range
-                        return qty
+                    qty = float(match.group(1))
+                    qty_int = int(qty)  # Convert float to int (20.00 -> 20)
+                    if 1 <= qty_int <= 10000:  # Reasonable range
+                        return qty_int
         
         # Default to 1
         return 1

@@ -34,10 +34,24 @@ class TransferGangingEngine(models.Model):
         # Find available LAY columns
         lay_stages = self._get_lay_stages()
         
+        # Process primary compatibility groups first (like-with-like)
+        unprocessed_groups = {}
         for group_key, group_tasks in compatibility_groups.items():
             result = self._process_compatibility_group(group_tasks, lay_stages)
             ganged_count += result['ganged']
             left_unplanned += result['unplanned']
+            
+            # Keep track of groups with remaining unprocessed tasks
+            if result['remaining_tasks']:
+                unprocessed_groups[group_key] = result['remaining_tasks']
+        
+        # Try cross-compatibility ganging for remaining unprocessed tasks
+        if unprocessed_groups and lay_stages:
+            cross_result = self._process_cross_compatibility(unprocessed_groups, lay_stages)
+            ganged_count += cross_result['ganged']
+            # Recalculate unplanned count after cross-compatibility processing
+            # Note: Tasks already removed from unprocessed_groups during assignment, no need to subtract again
+            left_unplanned = sum(len(tasks) for tasks in unprocessed_groups.values())
         
         message = f"Analysis complete: {ganged_count} tasks ganged, {left_unplanned} left unplanned for better opportunities"
         return {
@@ -50,7 +64,7 @@ class TransferGangingEngine(models.Model):
         }
     
     def _group_by_compatibility(self, tasks):
-        """Group tasks by product type and color compatibility"""
+        """Group tasks by product type and color compatibility - prioritize like-with-like first"""
         groups = {}
         
         for task in tasks:
@@ -58,21 +72,19 @@ class TransferGangingEngine(models.Model):
             product_type = task.get_parsed_product_type()
             color_variant = task.get_parsed_color_variant()
             
-            # Create compatibility key
+            # Create primary compatibility key - prioritize like-with-like
             if product_type == 'zero':
                 # Zero transfers are always alone
                 key = f"zero_{task.id}"
             elif product_type == 'full_colour':
-                key = "full_colour_white"  # Can gang with white single colour
+                # Full colour gets its own primary group
+                key = "full_colour"
             elif product_type == 'single_colour':
-                if color_variant == 'white':
-                    key = "full_colour_white"  # Gang with full colour
-                elif color_variant == 'silver':
-                    key = "metal_silver"  # Can gang with metal
-                else:
-                    key = f"single_{color_variant or 'unknown'}"
+                # Single colour jobs grouped by their specific color
+                key = f"single_{color_variant or 'unknown'}"
             elif product_type == 'metal':
-                key = "metal_silver"  # Can gang with silver single colour
+                # Metal gets its own group
+                key = "metal"
             else:
                 key = f"unknown_{task.id}"
             
@@ -110,21 +122,34 @@ class TransferGangingEngine(models.Model):
                 lay_stage = lay_stages.pop(0) if lay_stages else None
                 if lay_stage:
                     # Handle new combination format with task and quantity
+                    tasks_to_remove = []
                     for item in best_combination:
                         if isinstance(item, dict):
                             task = item['task']
                             quantity = item['quantity']
-                            # For now, assign the whole task to LAY column
-                            # TODO: In future, handle partial quantities by splitting tasks
-                            task.stage_id = lay_stage.id
-                            if task in remaining_tasks:
-                                remaining_tasks.remove(task)
+                            task_remaining_qty = task.get_remaining_quantity()
+                            
+                            # Only assign task to LAY if template consumes full remaining quantity
+                            if quantity >= task_remaining_qty:
+                                task.stage_id = lay_stage.id
+                                if task in remaining_tasks:
+                                    tasks_to_remove.append(task)
+                            else:
+                                # Template only consumes partial quantity - don't assign task yet
+                                # This prevents misrepresenting remaining quantities
+                                pass
                         else:
                             # Backward compatibility for simple task list
                             item.stage_id = lay_stage.id
                             if item in remaining_tasks:
-                                remaining_tasks.remove(item)
-                    ganged_count += len(best_combination)
+                                tasks_to_remove.append(item)
+                    
+                    # Remove tasks that were fully consumed
+                    for task in tasks_to_remove:
+                        remaining_tasks.remove(task)
+                    
+                    # Count ganged items based on tasks actually assigned
+                    ganged_count += len(tasks_to_remove)
                 else:
                     # No more LAY columns available
                     unplanned_count += len(remaining_tasks)
@@ -141,23 +166,112 @@ class TransferGangingEngine(models.Model):
                     # Gang critical tasks even if not cost-effective
                     lay_stage = lay_stages.pop(0) if lay_stages else None
                     if lay_stage:
+                        tasks_to_remove = []
                         for item in critical_items:
                             if isinstance(item, dict):
                                 task = item['task']
-                                task.stage_id = lay_stage.id
-                                if task in remaining_tasks:
-                                    remaining_tasks.remove(task)
+                                quantity = item['quantity']
+                                task_remaining_qty = task.get_remaining_quantity()
+                                
+                                # Only assign task to LAY if template consumes full remaining quantity
+                                if quantity >= task_remaining_qty:
+                                    task.stage_id = lay_stage.id
+                                    if task in remaining_tasks:
+                                        tasks_to_remove.append(task)
                             else:
                                 item.stage_id = lay_stage.id
                                 if item in remaining_tasks:
-                                    remaining_tasks.remove(item)
-                        ganged_count += len(critical_items)
+                                    tasks_to_remove.append(item)
+                        
+                        # Remove tasks that were fully consumed
+                        for task in tasks_to_remove:
+                            remaining_tasks.remove(task)
+                        
+                        # Count ganged items based on tasks actually assigned
+                        ganged_count += len(tasks_to_remove)
                 else:
                     # Leave all unplanned
                     unplanned_count += len(remaining_tasks)
                     break
         
-        return {'ganged': ganged_count, 'unplanned': unplanned_count}
+        return {
+            'ganged': ganged_count, 
+            'unplanned': unplanned_count,
+            'remaining_tasks': remaining_tasks
+        }
+    
+    def _process_cross_compatibility(self, unprocessed_groups, lay_stages):
+        """Process cross-compatibility ganging for remaining tasks - prioritize size optimization"""
+        ganged_count = 0
+        
+        # Create a pool of cross-compatible tasks
+        compatible_pools = self._create_cross_compatibility_pools(unprocessed_groups)
+        
+        for pool_tasks in compatible_pools:
+            if not pool_tasks or not lay_stages:
+                break
+                
+            # Find best cross-compatibility combination focusing on size optimization
+            best_combination = self._find_best_cross_compatible_combination(pool_tasks)
+            
+            if best_combination and self._should_gang_combination(best_combination):
+                # Assign to LAY column
+                lay_stage = lay_stages.pop(0) if lay_stages else None
+                if lay_stage:
+                    tasks_to_remove = []
+                    for item in best_combination:
+                        if isinstance(item, dict):
+                            task = item['task']
+                            quantity = item['quantity']
+                            task_remaining_qty = task.get_remaining_quantity()
+                            
+                            # Only assign task to LAY if template consumes full remaining quantity
+                            if quantity >= task_remaining_qty:
+                                task.stage_id = lay_stage.id
+                                tasks_to_remove.append(task)
+                        else:
+                            # Backward compatibility for simple task list
+                            item.stage_id = lay_stage.id
+                            tasks_to_remove.append(item)
+                    
+                    # Remove tasks that were fully consumed from original groups
+                    for task in tasks_to_remove:
+                        for group_tasks in unprocessed_groups.values():
+                            if task in group_tasks:
+                                group_tasks.remove(task)
+                    
+                    # Count ganged items based on tasks actually assigned
+                    ganged_count += len(tasks_to_remove)
+                else:
+                    break
+        
+        return {'ganged': ganged_count}
+    
+    def _create_cross_compatibility_pools(self, unprocessed_groups):
+        """Create pools of tasks that can gang across compatibility boundaries"""
+        pools = []
+        
+        # Pool 1: Full colour + Single colour white
+        full_colour_tasks = unprocessed_groups.get('full_colour', [])
+        single_white_tasks = unprocessed_groups.get('single_white', [])
+        if full_colour_tasks or single_white_tasks:
+            pools.append(full_colour_tasks + single_white_tasks)
+        
+        # Pool 2: Metal + Single colour silver
+        metal_tasks = unprocessed_groups.get('metal', [])
+        single_silver_tasks = unprocessed_groups.get('single_silver', [])
+        if metal_tasks or single_silver_tasks:
+            pools.append(metal_tasks + single_silver_tasks)
+        
+        return pools
+    
+    def _find_best_cross_compatible_combination(self, tasks):
+        """Find best combination across compatible task types focusing on size optimization"""
+        if not tasks:
+            return []
+            
+        # Use the same logic as regular combination finding but with cross-compatible tasks
+        return self._find_best_a3_combination(tasks)
     
     def _find_best_a3_combination(self, tasks):
         """Find the best mixed-size combination using predefined layout templates"""
@@ -193,10 +307,13 @@ class TransferGangingEngine(models.Model):
         best_combination = []
         best_score = 0
         
-        # Try each template to see which works best with available tasks
-        for template in layout_templates:
+        # Sort templates by priority first, then try them
+        sorted_templates = sorted(layout_templates, key=lambda t: t.get('priority', 0), reverse=True)
+        
+        # Try each template starting with highest priority
+        for template in sorted_templates:
             combination = []
-            total_priority = 0
+            total_task_priority = 0
             total_items = 0
             template_feasible = True
             
@@ -226,15 +343,21 @@ class TransferGangingEngine(models.Model):
                             'task': task_item['task'],
                             'quantity': qty_to_take
                         })
-                        total_priority += task_item['priority'] * qty_to_take
+                        total_task_priority += task_item['priority'] * qty_to_take
                         total_items += qty_to_take
                         qty_allocated += qty_to_take
             
             if template_feasible and combination:
-                # Score based on template efficiency, priority, and item count
-                utilization = template['utilization']
-                avg_priority = total_priority / total_items if total_items > 0 else 0
-                score = utilization * 1000 + avg_priority * 10 + total_items * 2
+                # Enhanced scoring: template priority, utilization, task priority, and completeness
+                utilization = template.get('utilization', 0.0)  # Defensive coding for missing utilization
+                template_priority = template.get('priority', 1)
+                avg_task_priority = total_task_priority / total_items if total_items > 0 else 0
+                
+                # Weighted scoring system
+                score = (template_priority * 500 +           # Template efficiency priority
+                        utilization * 1000 +                # Sheet utilization
+                        avg_task_priority * 15 +             # Task urgency priority  
+                        total_items * 3)                     # Item count bonus
                 
                 if score > best_score:
                     best_combination = combination
@@ -247,59 +370,112 @@ class TransferGangingEngine(models.Model):
         return best_combination
     
     def _get_mixed_layout_templates(self):
-        """Define mixed-size layout templates with dynamic utilization calculation"""
+        """Define comprehensive mixed-size layout templates prioritizing sheet utilization"""
         templates = [
-            # High-value mixed combinations (user's examples)
+            # Ultra high-efficiency combinations (90%+ utilization)
             {
                 'name': '1×A4 + 1×A5 + 4×100x70',
                 'layout': {'a4': 1, 'a5': 1, '100x70': 4},
-                'description': 'Optimal for mixed medium sizes'
+                'description': 'Optimal mixed medium sizes',
+                'priority': 10
             },
             {
                 'name': '2×A5 + 2×A6 + 4×100x70',
                 'layout': {'a5': 2, 'a6': 2, '100x70': 4},
-                'description': 'High density small-medium mix'
+                'description': 'High density small-medium mix',
+                'priority': 10
             },
             {
                 'name': '1×A4 + 2×A6 + 8×100x70',
                 'layout': {'a4': 1, 'a6': 2, '100x70': 8},
-                'description': 'Maximum 100x70 density'
+                'description': 'Maximum 100x70 density with A4',
+                'priority': 9
             },
-            {
-                'name': '1×A5 + 3×A6 + 6×100x70',
-                'layout': {'a5': 1, 'a6': 3, '100x70': 6},
-                'description': 'Balanced small size mix'
-            },
-            {
-                'name': '1×A4 + 6×95x95',
-                'layout': {'a4': 1, '95x95': 6},
-                'description': 'A4 with square formats'
-            },
-            {
-                'name': '2×A5 + 8×95x95',
-                'layout': {'a5': 2, '95x95': 8},
-                'description': 'A5 with square formats'
-            },
-            {
-                'name': '1×295x100 + 1×A6 + 8×60x60',
-                'layout': {'295x100': 1, 'a6': 1, '60x60': 8},
-                'description': 'Large format with small items'
-            },
-            # Single-size high-efficiency options  
+            
+            # High-efficiency single size runs (85%+ utilization)
             {
                 'name': '2×A4 only',
                 'layout': {'a4': 2},
-                'description': 'Pure A4 efficiency'
+                'description': 'Pure A4 efficiency',
+                'priority': 8
             },
             {
                 'name': '4×A5 only',
                 'layout': {'a5': 4},
-                'description': 'Pure A5 efficiency'
+                'description': 'Pure A5 efficiency',
+                'priority': 8
             },
             {
+                'name': '8×A6 only',
+                'layout': {'a6': 8},
+                'description': 'Pure A6 efficiency',
+                'priority': 8
+            },
+            
+            # Medium efficiency mixed combinations (70-85% utilization)
+            {
+                'name': '1×A5 + 3×A6 + 6×100x70',
+                'layout': {'a5': 1, 'a6': 3, '100x70': 6},
+                'description': 'Balanced small size mix',
+                'priority': 7
+            },
+            {
+                'name': '1×A4 + 6×95x95',
+                'layout': {'a4': 1, '95x95': 6},
+                'description': 'A4 with square formats',
+                'priority': 7
+            },
+            {
+                'name': '2×A5 + 8×95x95',
+                'layout': {'a5': 2, '95x95': 8},
+                'description': 'A5 with square formats',
+                'priority': 7
+            },
+            {
+                'name': '1×295x100 + 2×A6 + 6×60x60',
+                'layout': {'295x100': 1, 'a6': 2, '60x60': 6},
+                'description': 'Large format with small items',
+                'priority': 6
+            },
+            {
+                'name': '1×290x140 + 1×A6 + 4×100x70',
+                'layout': {'290x140': 1, 'a6': 1, '100x70': 4},
+                'description': 'Large format mixed',
+                'priority': 6
+            },
+            
+            # Small format high-density options
+            {
                 'name': 'Max 100x70 only',
-                'layout': {'100x70': 40},  # Will be verified by actual fit calculation
-                'description': 'Maximum small format density'
+                'layout': {'100x70': 40},  # Will be calculated by fit algorithm
+                'description': 'Maximum small format density',
+                'priority': 7
+            },
+            {
+                'name': 'Max 95x95 only',
+                'layout': {'95x95': 28},  # Will be calculated by fit algorithm  
+                'description': 'Maximum square format density',
+                'priority': 7
+            },
+            {
+                'name': 'Max 60x60 only',
+                'layout': {'60x60': 72},  # Will be calculated by fit algorithm
+                'description': 'Maximum tiny format density',
+                'priority': 6
+            },
+            
+            # Specialty combinations for unusual mixes
+            {
+                'name': '2×295x100 only',
+                'layout': {'295x100': 2},
+                'description': 'Large format pair',
+                'priority': 5
+            },
+            {
+                'name': '1×A4 + 1×A6 + 2×295x100',
+                'layout': {'a4': 1, 'a6': 1, '295x100': 2},
+                'description': 'Mixed with large formats',
+                'priority': 5
             }
         ]
         
