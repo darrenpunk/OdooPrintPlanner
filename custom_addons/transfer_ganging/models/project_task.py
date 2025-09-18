@@ -305,3 +305,23 @@ class ProjectTask(models.Model):
             return True
         
         return False
+    
+    # =============================================
+    # ACTION METHODS FOR TASK VIEW BUTTONS  
+    # =============================================
+    
+    def action_analyze_project_tasks(self):
+        """Delegate to project-level analyze and gang tasks action"""
+        if not self.project_id:
+            return {'type': 'ir.actions.client', 'tag': 'display_notification',
+                   'params': {'message': 'No project found for this task', 'type': 'warning'}}
+        
+        return self.project_id.action_analyze_and_gang_tasks()
+    
+    def action_analyze_project_combinations(self):
+        """Delegate to project-level combination analysis action"""
+        if not self.project_id:
+            return {'type': 'ir.actions.client', 'tag': 'display_notification',
+                   'params': {'message': 'No project found for this task', 'type': 'warning'}}
+        
+        return self.project_id.action_analyze_all_combinations()
