@@ -12,11 +12,16 @@ class ProjectProject(models.Model):
     
     def action_analyze_and_gang_tasks(self):
         """Analyze and gang all transfer tasks in this project"""
+        # Columns to ignore during ganging analysis
+        ignored_stages = ['On Hold', 'Artwork in Progress', 'Waiting on Approval', 'Waiting approval']
+        
         # Find all transfer tasks in this project that haven't been assigned to LAY columns
+        # and are not in ignored stages
         transfer_tasks = self.task_ids.filtered(lambda t: 
             t.get_parsed_product_type() and 
             t.stage_id and 
-            'LAY' not in (t.stage_id.name or ''))
+            'LAY' not in (t.stage_id.name or '') and
+            (t.stage_id.name or '') not in ignored_stages)
         
         if not transfer_tasks:
             return {
