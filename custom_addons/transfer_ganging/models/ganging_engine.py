@@ -16,10 +16,13 @@ class TransferGangingEngine(models.Model):
         Main algorithm for analyzing and ganging tasks optimally
         
         Logic:
-        1. Group tasks by compatibility (product type and color)
-        2. For each group, calculate optimal A3 utilization
-        3. Only gang if cost-effective OR deadline is critical
+        1. Group tasks by compatibility (product type and color) - NOT by deadline
+        2. For each group, calculate optimal A3 utilization (mixed deadlines allowed)
+        3. Only gang if cost-effective OR any task has critical deadline
         4. Assign to LAY columns based on optimization
+        
+        Note: Tasks with different deadlines CAN be ganged together for better sheet utilization.
+        Deadlines only affect priority ordering, not grouping constraints.
         """
         if not tasks:
             return {'type': 'ir.actions.client', 'tag': 'display_notification',
@@ -100,6 +103,7 @@ class TransferGangingEngine(models.Model):
         unplanned_count = 0
         
         # Sort by priority (deadline urgency + cost effectiveness)
+        # Note: Mixed deadlines are allowed - priority is just for processing order
         sorted_tasks = sorted(tasks, key=lambda t: t.get_gang_priority(), reverse=True)
         
         # Try to find optimal ganging combinations
