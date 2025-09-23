@@ -131,13 +131,10 @@ class TransferGangingEngine(models.Model):
                         if isinstance(item, dict):
                             task = item['task']
                             quantity = item['quantity']
-                            task_remaining_qty = task.get_remaining_quantity()
-                            
-                            # Only assign task to LAY if template consumes full remaining quantity
-                            if quantity >= task_remaining_qty:
-                                task.stage_id = lay_stage.id
-                                if task in remaining_tasks:
-                                    tasks_to_remove.append(task)
+                            # Assign task to LAY column - partial quantities are allowed
+                            task.stage_id = lay_stage.id
+                            if task in remaining_tasks:
+                                tasks_to_remove.append(task)
                             else:
                                 # Template only consumes partial quantity - don't assign task yet
                                 # This prevents misrepresenting remaining quantities
@@ -175,13 +172,10 @@ class TransferGangingEngine(models.Model):
                             if isinstance(item, dict):
                                 task = item['task']
                                 quantity = item['quantity']
-                                task_remaining_qty = task.get_remaining_quantity()
-                                
-                                # Only assign task to LAY if template consumes full remaining quantity
-                                if quantity >= task_remaining_qty:
-                                    task.stage_id = lay_stage.id
-                                    if task in remaining_tasks:
-                                        tasks_to_remove.append(task)
+                                # Assign task to LAY column - partial quantities are allowed
+                                task.stage_id = lay_stage.id
+                                if task in remaining_tasks:
+                                    tasks_to_remove.append(task)
                             else:
                                 item.stage_id = lay_stage.id
                                 if item in remaining_tasks:
@@ -227,12 +221,9 @@ class TransferGangingEngine(models.Model):
                         if isinstance(item, dict):
                             task = item['task']
                             quantity = item['quantity']
-                            task_remaining_qty = task.get_remaining_quantity()
-                            
-                            # Only assign task to LAY if template consumes full remaining quantity
-                            if quantity >= task_remaining_qty:
-                                task.stage_id = lay_stage.id
-                                tasks_to_remove.append(task)
+                            # Assign task to LAY column - partial quantities are allowed  
+                            task.stage_id = lay_stage.id
+                            tasks_to_remove.append(task)
                         else:
                             # Backward compatibility for simple task list
                             item.stage_id = lay_stage.id
