@@ -105,6 +105,8 @@ class TransferGangingEngine(models.Model):
     def _process_compatibility_group(self, tasks, lay_stages):
         """Process a group of compatible tasks"""
         allocated_qty = 0
+        ganged_count = 0
+        unplanned_count = 0
         
         # Sort by priority (deadline urgency + cost effectiveness)
         # Note: Mixed deadlines are allowed - priority is just for processing order
@@ -141,26 +143,27 @@ class TransferGangingEngine(models.Model):
                             self.run_allocations[task.id] += quantity
                             allocated_in_template += quantity
                             
-                            # Only move to LAY if task is fully consumed
+                            # Mark for removal if fully consumed, but don't set stage yet
                             if self.run_allocations[task.id] >= task.get_remaining_quantity():
-                                task.stage_id = lay_stage.id
                                 if task in remaining_tasks:
                                     tasks_to_remove.append(task)
                         else:
-                            # Backward compatibility for simple task list
-                            item.stage_id = lay_stage.id
+                            # Backward compatibility for simple task list - don't set stage directly!
+                            # Just track the task for removal and let finalization handle stage assignment
                             if item in remaining_tasks:
+                                # Mark as fully consumed since it's in backward compatibility mode
+                                self.run_allocations[item.id] = item.get_remaining_quantity()
                                 tasks_to_remove.append(item)
                     
                     # Remove tasks that were fully consumed
                     for task in tasks_to_remove:
                         remaining_tasks.remove(task)
                     
-                    # Count ganged items based on tasks actually assigned
+                    # Update tracking totals
+                    allocated_qty += allocated_in_template
                     ganged_count += len(tasks_to_remove)
                 else:
                     # No more LAY columns available
-                    unplanned_count += len(remaining_tasks)
                     break
             else:
                 # Not cost-effective, leave unplanned unless deadline critical
@@ -175,24 +178,31 @@ class TransferGangingEngine(models.Model):
                     lay_stage = lay_stages.pop(0) if lay_stages else None
                     if lay_stage:
                         tasks_to_remove = []
+                        allocated_in_critical = 0
                         for item in critical_items:
                             if isinstance(item, dict):
                                 task = item['task']
                                 quantity = item['quantity']
-                                # Assign task to LAY column - partial quantities are allowed
-                                task.stage_id = lay_stage.id
-                                if task in remaining_tasks:
-                                    tasks_to_remove.append(task)
+                                # Track allocation but don't set stage yet - finalize will handle it
+                                self.run_allocations[task.id] += quantity
+                                allocated_in_critical += quantity
+                                if self.run_allocations[task.id] >= task.get_remaining_quantity():
+                                    if task in remaining_tasks:
+                                        tasks_to_remove.append(task)
                             else:
-                                item.stage_id = lay_stage.id
+                                # Don't set stage directly - let finalization handle it
                                 if item in remaining_tasks:
+                                    # Mark as fully consumed since it's in backward compatibility mode
+                                    self.run_allocations[item.id] = item.get_remaining_quantity()
+                                    allocated_in_critical += item.get_remaining_quantity()
                                     tasks_to_remove.append(item)
                         
                         # Remove tasks that were fully consumed
                         for task in tasks_to_remove:
                             remaining_tasks.remove(task)
                         
-                        # Count ganged items based on tasks actually assigned
+                        # Update tracking totals
+                        allocated_qty += allocated_in_critical
                         ganged_count += len(tasks_to_remove)
                 else:
                     # Leave all unplanned
@@ -207,6 +217,7 @@ class TransferGangingEngine(models.Model):
     def _process_cross_compatibility(self, unprocessed_groups, lay_stages):
         """Process cross-compatibility ganging for remaining tasks - prioritize size optimization"""
         allocated_qty = 0
+        ganged_count = 0
         
         # Create a pool of cross-compatible tasks
         compatible_pools = self._create_cross_compatibility_pools(unprocessed_groups)
@@ -233,13 +244,14 @@ class TransferGangingEngine(models.Model):
                             self.run_allocations[task.id] += quantity
                             allocated_in_template += quantity
                             
-                            # Only move to LAY if task is fully consumed
+                            # Don't set stage directly - let finalization handle it
                             if self.run_allocations[task.id] >= task.get_remaining_quantity():
-                                task.stage_id = lay_stage.id
                                 tasks_to_remove.append(task)
                         else:
-                            # Backward compatibility for simple task list
-                            item.stage_id = lay_stage.id
+                            # Backward compatibility - don't set stage directly
+                            # Mark as fully consumed since it's in backward compatibility mode
+                            self.run_allocations[item.id] = item.get_remaining_quantity()
+                            allocated_in_template += item.get_remaining_quantity()
                             tasks_to_remove.append(item)
                     
                     # Remove tasks that were fully consumed from original groups
@@ -248,12 +260,16 @@ class TransferGangingEngine(models.Model):
                             if task in group_tasks:
                                 group_tasks.remove(task)
                     
-                    # Count ganged items based on tasks actually assigned
+                    # Update tracking totals
+                    allocated_qty += allocated_in_template
                     ganged_count += len(tasks_to_remove)
                 else:
                     break
         
-        return {'ganged': ganged_count}
+        return {
+            'allocated_qty': allocated_qty,
+            'ganged_count': ganged_count
+        }
     
     def _create_cross_compatibility_pools(self, unprocessed_groups):
         """Create pools of tasks that can gang across compatibility boundaries"""
@@ -672,13 +688,26 @@ class TransferGangingEngine(models.Model):
         """Move fully consumed tasks to LAY stages and return count"""
         fully_ganged_count = 0
         
+        # Get available LAY stages for assignment
+        lay_stages = self._get_lay_stages()
+        lay_stage_index = 0
+        
         for task_id, allocated_qty in self.run_allocations.items():
             if allocated_qty > 0:
                 task = self.env['project.task'].browse(task_id)
                 remaining_qty = task.get_remaining_quantity()
                 
-                # If task is fully or mostly consumed, it should already be in LAY stage
-                if allocated_qty >= remaining_qty and task.stage_id and 'LAY' in (task.stage_id.name or ''):
+                # If task is fully consumed, move to LAY stage
+                if allocated_qty >= remaining_qty:
+                    # Only assign to LAY stage if not already in one
+                    current_stage_name = task.stage_id.name or '' if task.stage_id else ''
+                    if 'LAY' not in current_stage_name:
+                        # Assign to next available LAY stage
+                        if lay_stage_index < len(lay_stages):
+                            task.stage_id = lay_stages[lay_stage_index].id
+                            lay_stage_index += 1
+                            _logger.info(f"Task {task.name} moved to LAY stage {lay_stages[lay_stage_index-1].name}")
+                    
                     fully_ganged_count += 1
         
         return fully_ganged_count
