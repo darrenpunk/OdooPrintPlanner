@@ -19,7 +19,7 @@ class TransferGangingEngine(models.Model):
         1. Group tasks by compatibility (product type and color) - NOT by deadline
         2. For each group, calculate optimal A3 utilization (mixed deadlines allowed)
         3. Only gang if cost-effective OR any task has critical deadline
-        4. Assign to LAY columns based on optimization
+        4. Assign to LAY columns based on optimization with proper quantity tracking
         
         Note: Tasks with different deadlines CAN be ganged together for better sheet utilization.
         Deadlines only affect priority ordering, not grouping constraints.
@@ -28,8 +28,13 @@ class TransferGangingEngine(models.Model):
             return {'type': 'ir.actions.client', 'tag': 'display_notification',
                    'params': {'message': 'No tasks to analyze', 'type': 'warning'}}
         
-        ganged_count = 0
-        left_unplanned = 0
+        # Initialize per-run allocation tracking
+        self.run_allocations = {}  # task.id -> total_allocated_qty
+        for task in tasks:
+            self.run_allocations[task.id] = 0
+        
+        total_allocated_qty = 0
+        total_remaining_qty = sum(task.get_remaining_quantity() for task in tasks)
         
         # Group tasks by compatibility
         compatibility_groups = self._group_by_compatibility(tasks)
@@ -41,8 +46,7 @@ class TransferGangingEngine(models.Model):
         unprocessed_groups = {}
         for group_key, group_tasks in compatibility_groups.items():
             result = self._process_compatibility_group(group_tasks, lay_stages)
-            ganged_count += result['ganged']
-            left_unplanned += result['unplanned']
+            total_allocated_qty += result['allocated_qty']
             
             # Keep track of groups with remaining unprocessed tasks
             if result['remaining_tasks']:
@@ -51,12 +55,13 @@ class TransferGangingEngine(models.Model):
         # Try cross-compatibility ganging for remaining unprocessed tasks
         if unprocessed_groups and lay_stages:
             cross_result = self._process_cross_compatibility(unprocessed_groups, lay_stages)
-            ganged_count += cross_result['ganged']
-            # Recalculate unplanned count after cross-compatibility processing
-            # Note: Tasks already removed from unprocessed_groups during assignment, no need to subtract again
-            left_unplanned = sum(len(tasks) for tasks in unprocessed_groups.values())
+            total_allocated_qty += cross_result['allocated_qty']
         
-        message = f"Analysis complete: {ganged_count} tasks ganged, {left_unplanned} left unplanned for better opportunities"
+        # Final cleanup: move fully consumed tasks to LAY stages
+        fully_ganged_count = self._finalize_task_assignments()
+        
+        remaining_qty = total_remaining_qty - total_allocated_qty
+        message = f"Analysis complete: {total_allocated_qty} items allocated across {fully_ganged_count} tasks, {remaining_qty} items left for future opportunities"
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
@@ -99,8 +104,7 @@ class TransferGangingEngine(models.Model):
     
     def _process_compatibility_group(self, tasks, lay_stages):
         """Process a group of compatible tasks"""
-        ganged_count = 0
-        unplanned_count = 0
+        allocated_qty = 0
         
         # Sort by priority (deadline urgency + cost effectiveness)
         # Note: Mixed deadlines are allowed - priority is just for processing order
@@ -127,18 +131,21 @@ class TransferGangingEngine(models.Model):
                 if lay_stage:
                     # Handle new combination format with task and quantity
                     tasks_to_remove = []
+                    allocated_in_template = 0
                     for item in best_combination:
                         if isinstance(item, dict):
                             task = item['task']
                             quantity = item['quantity']
-                            # Assign task to LAY column - partial quantities are allowed
-                            task.stage_id = lay_stage.id
-                            if task in remaining_tasks:
-                                tasks_to_remove.append(task)
-                            else:
-                                # Template only consumes partial quantity - don't assign task yet
-                                # This prevents misrepresenting remaining quantities
-                                pass
+                            
+                            # Track allocated quantity
+                            self.run_allocations[task.id] += quantity
+                            allocated_in_template += quantity
+                            
+                            # Only move to LAY if task is fully consumed
+                            if self.run_allocations[task.id] >= task.get_remaining_quantity():
+                                task.stage_id = lay_stage.id
+                                if task in remaining_tasks:
+                                    tasks_to_remove.append(task)
                         else:
                             # Backward compatibility for simple task list
                             item.stage_id = lay_stage.id
@@ -193,14 +200,13 @@ class TransferGangingEngine(models.Model):
                     break
         
         return {
-            'ganged': ganged_count, 
-            'unplanned': unplanned_count,
+            'allocated_qty': allocated_qty,
             'remaining_tasks': remaining_tasks
         }
     
     def _process_cross_compatibility(self, unprocessed_groups, lay_stages):
         """Process cross-compatibility ganging for remaining tasks - prioritize size optimization"""
-        ganged_count = 0
+        allocated_qty = 0
         
         # Create a pool of cross-compatible tasks
         compatible_pools = self._create_cross_compatibility_pools(unprocessed_groups)
@@ -217,13 +223,20 @@ class TransferGangingEngine(models.Model):
                 lay_stage = lay_stages.pop(0) if lay_stages else None
                 if lay_stage:
                     tasks_to_remove = []
+                    allocated_in_template = 0
                     for item in best_combination:
                         if isinstance(item, dict):
                             task = item['task']
                             quantity = item['quantity']
-                            # Assign task to LAY column - partial quantities are allowed  
-                            task.stage_id = lay_stage.id
-                            tasks_to_remove.append(task)
+                            
+                            # Track allocated quantity
+                            self.run_allocations[task.id] += quantity
+                            allocated_in_template += quantity
+                            
+                            # Only move to LAY if task is fully consumed
+                            if self.run_allocations[task.id] >= task.get_remaining_quantity():
+                                task.stage_id = lay_stage.id
+                                tasks_to_remove.append(task)
                         else:
                             # Backward compatibility for simple task list
                             item.stage_id = lay_stage.id
@@ -654,3 +667,18 @@ class TransferGangingEngine(models.Model):
                 available_stages.append(stage)
         
         return available_stages
+    
+    def _finalize_task_assignments(self):
+        """Move fully consumed tasks to LAY stages and return count"""
+        fully_ganged_count = 0
+        
+        for task_id, allocated_qty in self.run_allocations.items():
+            if allocated_qty > 0:
+                task = self.env['project.task'].browse(task_id)
+                remaining_qty = task.get_remaining_quantity()
+                
+                # If task is fully or mostly consumed, it should already be in LAY stage
+                if allocated_qty >= remaining_qty and task.stage_id and 'LAY' in (task.stage_id.name or ''):
+                    fully_ganged_count += 1
+        
+        return fully_ganged_count
