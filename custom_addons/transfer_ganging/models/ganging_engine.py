@@ -153,6 +153,7 @@ class TransferGangingEngine(models.Model):
                             if item in remaining_tasks:
                                 # Mark as fully consumed since it's in backward compatibility mode
                                 self.run_allocations[item.id] = item.get_remaining_quantity()
+                                allocated_in_template += item.get_remaining_quantity()
                                 tasks_to_remove.append(item)
                     
                     # Remove tasks that were fully consumed
