@@ -7,7 +7,7 @@
             <field name="model">project.project</field>
             <field name="inherit_id" ref="project.edit_project"/>
             <field name="arch" type="xml">
-                <xpath expr="//header" position="inside">
+                <xpath expr="//header/button[@name='generate_task']" position="after">
                     <button name="action_analyze_and_gang_tasks" type="object" 
                             string="Analyze and Gang Tasks" 
                             class="btn-primary"
@@ -51,17 +51,5 @@
             </field>
         </record>
 
-        <!-- Project Task Kanban View with Action Buttons -->  
-        <record id="view_task_kanban_inherit_transfer" model="ir.ui.view">
-            <field name="name">project.task.kanban.inherit.transfer</field>
-            <field name="model">project.task</field>
-            <field name="inherit_id" ref="project.view_task_kanban"/>
-            <field name="arch" type="xml">
-                <xpath expr="//control/create" position="after">
-                    <button string="Analyze and Gang Tasks" type="object" name="action_analyze_project_tasks" class="btn-primary" groups="base.group_user"/>
-                    <button string="Generate Combinations" type="object" name="action_analyze_project_combinations" class="btn-secondary" groups="base.group_user"/>
-                </xpath>
-            </field>
-        </record>
     </data>
 </odoo>
