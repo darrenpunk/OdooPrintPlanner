@@ -1,27 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Server Action for Ganging Analysis - DISABLED to prevent auto-ganging -->
-        <record id="action_analyze_gang_tasks_server" model="ir.actions.server">
-            <field name="name">Analyze and Gang Tasks</field>
-            <field name="model_id" ref="project.model_project_task"/>
-            <!-- binding_model_id and binding_view_types removed to disable automatic binding -->
-            <field name="state">code</field>
-            <field name="active">False</field>
-            <field name="code">
-                if records:
-                    ganging_engine = env['transfer.ganging.engine']
-                    action = ganging_engine.analyze_and_gang_tasks(records)
-                else:
-                    action = {
-                        'type': 'ir.actions.client',
-                        'tag': 'display_notification',
-                        'params': {
-                            'message': 'No tasks selected for analysis',
-                            'type': 'warning'
-                        }
-                    }
-            </field>
-        </record>
+        <!-- Server actions completely removed to prevent task-level buttons -->
     </data>
 </odoo>

@@ -693,6 +693,10 @@ class TransferGangingEngine(models.Model):
         lay_stages = self._get_lay_stages()
         lay_stage_index = 0
         
+        # Ensure run_allocations exists before accessing
+        if not hasattr(self, 'run_allocations') or not self.run_allocations:
+            return 0
+            
         for task_id, allocated_qty in self.run_allocations.items():
             if allocated_qty > 0:
                 task = self.env['project.task'].browse(task_id)
