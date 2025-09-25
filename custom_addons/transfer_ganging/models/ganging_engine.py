@@ -29,9 +29,9 @@ class TransferGangingEngine(models.Model):
                    'params': {'message': 'No tasks to analyze', 'type': 'warning'}}
         
         # Initialize per-run allocation tracking
-        self.run_allocations = {}  # task.id -> total_allocated_qty
+        run_allocations = {}  # task.id -> total_allocated_qty
         for task in tasks:
-            self.run_allocations[task.id] = 0
+            run_allocations[task.id] = 0
         
         total_allocated_qty = 0
         total_remaining_qty = sum(task.get_remaining_quantity() for task in tasks)
@@ -45,7 +45,7 @@ class TransferGangingEngine(models.Model):
         # Process primary compatibility groups first (like-with-like)
         unprocessed_groups = {}
         for group_key, group_tasks in compatibility_groups.items():
-            result = self._process_compatibility_group(group_tasks, lay_stages)
+            result = self._process_compatibility_group(group_tasks, lay_stages, run_allocations)
             total_allocated_qty += result['allocated_qty']
             
             # Keep track of groups with remaining unprocessed tasks
@@ -54,11 +54,11 @@ class TransferGangingEngine(models.Model):
         
         # Try cross-compatibility ganging for remaining unprocessed tasks
         if unprocessed_groups and lay_stages:
-            cross_result = self._process_cross_compatibility(unprocessed_groups, lay_stages)
+            cross_result = self._process_cross_compatibility(unprocessed_groups, lay_stages, run_allocations)
             total_allocated_qty += cross_result['allocated_qty']
         
         # Final cleanup: move fully consumed tasks to LAY stages
-        fully_ganged_count = self._finalize_task_assignments()
+        fully_ganged_count = self._finalize_task_assignments(run_allocations)
         
         remaining_qty = total_remaining_qty - total_allocated_qty
         message = f"Analysis complete: {total_allocated_qty} items allocated across {fully_ganged_count} tasks, {remaining_qty} items left for future opportunities"
@@ -102,7 +102,7 @@ class TransferGangingEngine(models.Model):
         
         return groups
     
-    def _process_compatibility_group(self, tasks, lay_stages):
+    def _process_compatibility_group(self, tasks, lay_stages, run_allocations):
         """Process a group of compatible tasks"""
         allocated_qty = 0
         ganged_count = 0
@@ -140,11 +140,11 @@ class TransferGangingEngine(models.Model):
                             quantity = item['quantity']
                             
                             # Track allocated quantity
-                            self.run_allocations[task.id] += quantity
+                            run_allocations[task.id] += quantity
                             allocated_in_template += quantity
                             
                             # Mark for removal if fully consumed, but don't set stage yet
-                            if self.run_allocations[task.id] >= task.get_remaining_quantity():
+                            if run_allocations[task.id] >= task.get_remaining_quantity():
                                 if task in remaining_tasks:
                                     tasks_to_remove.append(task)
                         else:
@@ -152,7 +152,7 @@ class TransferGangingEngine(models.Model):
                             # Just track the task for removal and let finalization handle stage assignment
                             if item in remaining_tasks:
                                 # Mark as fully consumed since it's in backward compatibility mode
-                                self.run_allocations[item.id] = item.get_remaining_quantity()
+                                run_allocations[item.id] = item.get_remaining_quantity()
                                 allocated_in_template += item.get_remaining_quantity()
                                 tasks_to_remove.append(item)
                     
@@ -185,16 +185,16 @@ class TransferGangingEngine(models.Model):
                                 task = item['task']
                                 quantity = item['quantity']
                                 # Track allocation but don't set stage yet - finalize will handle it
-                                self.run_allocations[task.id] += quantity
+                                run_allocations[task.id] += quantity
                                 allocated_in_critical += quantity
-                                if self.run_allocations[task.id] >= task.get_remaining_quantity():
+                                if run_allocations[task.id] >= task.get_remaining_quantity():
                                     if task in remaining_tasks:
                                         tasks_to_remove.append(task)
                             else:
                                 # Don't set stage directly - let finalization handle it
                                 if item in remaining_tasks:
                                     # Mark as fully consumed since it's in backward compatibility mode
-                                    self.run_allocations[item.id] = item.get_remaining_quantity()
+                                    run_allocations[item.id] = item.get_remaining_quantity()
                                     allocated_in_critical += item.get_remaining_quantity()
                                     tasks_to_remove.append(item)
                         
@@ -215,7 +215,7 @@ class TransferGangingEngine(models.Model):
             'remaining_tasks': remaining_tasks
         }
     
-    def _process_cross_compatibility(self, unprocessed_groups, lay_stages):
+    def _process_cross_compatibility(self, unprocessed_groups, lay_stages, run_allocations):
         """Process cross-compatibility ganging for remaining tasks - prioritize size optimization"""
         allocated_qty = 0
         ganged_count = 0
@@ -242,11 +242,11 @@ class TransferGangingEngine(models.Model):
                             quantity = item['quantity']
                             
                             # Track allocated quantity
-                            self.run_allocations[task.id] += quantity
+                            run_allocations[task.id] += quantity
                             allocated_in_template += quantity
                             
                             # Don't set stage directly - let finalization handle it
-                            if self.run_allocations[task.id] >= task.get_remaining_quantity():
+                            if run_allocations[task.id] >= task.get_remaining_quantity():
                                 tasks_to_remove.append(task)
                         else:
                             # Backward compatibility - don't set stage directly
@@ -685,7 +685,7 @@ class TransferGangingEngine(models.Model):
         
         return available_stages
     
-    def _finalize_task_assignments(self):
+    def _finalize_task_assignments(self, run_allocations):
         """Move fully consumed tasks to LAY stages and return count"""
         fully_ganged_count = 0
         
@@ -693,11 +693,11 @@ class TransferGangingEngine(models.Model):
         lay_stages = self._get_lay_stages()
         lay_stage_index = 0
         
-        # Ensure run_allocations exists before accessing
-        if not hasattr(self, 'run_allocations') or not self.run_allocations:
+        # Process run_allocations parameter
+        if not run_allocations:
             return 0
             
-        for task_id, allocated_qty in self.run_allocations.items():
+        for task_id, allocated_qty in run_allocations.items():
             if allocated_qty > 0:
                 task = self.env['project.task'].browse(task_id)
                 remaining_qty = task.get_remaining_quantity()

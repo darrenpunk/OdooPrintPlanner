@@ -7,7 +7,7 @@
             <field name="model">project.project</field>
             <field name="inherit_id" ref="project.edit_project"/>
             <field name="arch" type="xml">
-                <xpath expr="//header/button[@name='generate_task']" position="after">
+                <xpath expr="//header" position="inside">
                     <button name="action_analyze_and_gang_tasks" type="object" 
                             string="Analyze and Gang Tasks" 
                             class="btn-primary"

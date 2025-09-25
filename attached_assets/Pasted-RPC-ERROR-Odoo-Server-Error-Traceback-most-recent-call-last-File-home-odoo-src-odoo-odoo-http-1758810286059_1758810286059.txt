@@ -1,0 +1,38 @@
+RPC_ERROR
+Odoo Server Error
+Traceback (most recent call last):
+  File "/home/odoo/src/odoo/odoo/http.py", line 1848, in _serve_db
+    return service_model.retrying(self._serve_ir_http, self.env)
+  File "/home/odoo/src/odoo/odoo/service/model.py", line 152, in retrying
+    result = func()
+  File "/home/odoo/src/odoo/odoo/http.py", line 1876, in _serve_ir_http
+    response = self.dispatcher.dispatch(rule.endpoint, args)
+  File "/home/odoo/src/odoo/odoo/http.py", line 2080, in dispatch
+    result = self.request.registry['ir.http']._dispatch(endpoint)
+  File "/home/odoo/src/odoo/addons/website/models/ir_http.py", line 237, in _dispatch
+    response = super()._dispatch(endpoint)
+  File "/home/odoo/src/odoo/odoo/addons/base/models/ir_http.py", line 154, in _dispatch
+    result = endpoint(**request.params)
+  File "/home/odoo/src/odoo/odoo/http.py", line 763, in route_wrapper
+    result = endpoint(self, *args, **params_ok)
+  File "/home/odoo/src/odoo/addons/web/controllers/dataset.py", line 47, in call_button
+    action = self._call_kw(model, method, args, kwargs)
+  File "/home/odoo/src/user/printnode_base/controllers/main.py", line 44, in _call_kw
+    return super(DataSetProxy, self)._call_kw(model, method, args, kwargs)
+  File "/home/odoo/src/odoo/addons/web/controllers/dataset.py", line 34, in _call_kw
+    return call_kw(Model, method, args, kwargs)
+  File "/home/odoo/src/odoo/odoo/api.py", line 484, in call_kw
+    result = _call_kw_multi(method, model, args, kwargs)
+  File "/home/odoo/src/odoo/odoo/api.py", line 469, in _call_kw_multi
+    result = method(recs, *args, **kwargs)
+  File "/home/odoo/src/user/transfer_ganging/models/project_project.py", line 37, in action_analyze_and_gang_tasks
+    return ganging_engine.analyze_and_gang_tasks(transfer_tasks)
+  File "/home/odoo/src/user/transfer_ganging/models/ganging_engine.py", line 32, in analyze_and_gang_tasks
+    self.run_allocations = {}  # task.id -> total_allocated_qty
+AttributeError: 'transfer.ganging.engine' object has no attribute 'run_allocations'
+
+The above server error caused the following client error:
+RPC_ERROR: Odoo Server Error
+    RPC_ERROR
+        at makeErrorFromResponse (https://support-atharva-serigraf-16-stage-0410-23999211.dev.odoo.com/web/assets/4177095-7eec3e0/web.assets_backend.min.js:1010:163)
+        at XMLHttpRequest.<anonymous> (https://support-atharva-serigraf-16-stage-0410-23999211.dev.odoo.com/web/assets/4177095-7eec3e0/web.assets_backend.min.js:1018:13)
