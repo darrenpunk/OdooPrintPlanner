@@ -390,11 +390,11 @@ class TransferGangingEngine(models.Model):
                 template_priority = template.get('priority', 1)
                 avg_task_priority = total_task_priority / total_items if total_items > 0 else 0
                 
-                # Weighted scoring system
-                score = (template_priority * 500 +           # Template efficiency priority
-                        utilization * 1000 +                # Sheet utilization
-                        avg_task_priority * 15 +             # Task urgency priority  
-                        total_items * 3)                     # Item count bonus
+                # Enhanced weighted scoring system favoring consolidation
+                score = (template_priority * 300 +           # Reduced template priority weight
+                        utilization * 2000 +                # DOUBLED sheet utilization weight
+                        avg_task_priority * 25 +             # Increased task urgency weight
+                        total_items * 8)                     # INCREASED item count bonus for consolidation
                 
                 if score > best_score:
                     best_combination = combination
@@ -409,24 +409,24 @@ class TransferGangingEngine(models.Model):
     def _get_mixed_layout_templates(self):
         """Define comprehensive mixed-size layout templates prioritizing sheet utilization"""
         templates = [
-            # Ultra high-efficiency combinations (90%+ utilization)
+            # Ultra high-efficiency combinations (90%+ utilization) - PRIORITIZED
             {
                 'name': '1×A4 + 1×A5 + 4×100x70',
                 'layout': {'a4': 1, 'a5': 1, '100x70': 4},
                 'description': 'Optimal mixed medium sizes',
-                'priority': 10
+                'priority': 15  # INCREASED priority for high utilization
             },
             {
                 'name': '2×A5 + 2×A6 + 4×100x70',
                 'layout': {'a5': 2, 'a6': 2, '100x70': 4},
                 'description': 'High density small-medium mix',
-                'priority': 10
+                'priority': 15  # INCREASED priority for high utilization
             },
             {
                 'name': '1×A4 + 2×A6 + 8×100x70',
                 'layout': {'a4': 1, 'a6': 2, '100x70': 8},
                 'description': 'Maximum 100x70 density with A4',
-                'priority': 9
+                'priority': 14  # INCREASED priority
             },
             
             # High-efficiency single size runs (85%+ utilization)
@@ -481,24 +481,24 @@ class TransferGangingEngine(models.Model):
                 'priority': 6
             },
             
-            # Small format high-density options
+            # Small format high-density options - BOOSTED for consolidation
             {
                 'name': 'Max 100x70 only',
                 'layout': {'100x70': 40},  # Will be calculated by fit algorithm
                 'description': 'Maximum small format density',
-                'priority': 7
+                'priority': 12  # INCREASED for better consolidation
             },
             {
                 'name': 'Max 95x95 only',
                 'layout': {'95x95': 28},  # Will be calculated by fit algorithm  
                 'description': 'Maximum square format density',
-                'priority': 7
+                'priority': 12  # INCREASED for better consolidation
             },
             {
                 'name': 'Max 60x60 only',
                 'layout': {'60x60': 72},  # Will be calculated by fit algorithm
                 'description': 'Maximum tiny format density',
-                'priority': 6
+                'priority': 11  # INCREASED for better consolidation
             },
             
             # Specialty combinations for unusual mixes
