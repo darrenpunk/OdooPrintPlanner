@@ -28,8 +28,9 @@ class TransferGangingEngine(models.Model):
             return {'type': 'ir.actions.client', 'tag': 'display_notification',
                    'params': {'message': 'No tasks to analyze', 'type': 'warning'}}
         
-        # Initialize per-run allocation tracking
+        # Initialize per-run allocation tracking AND LAY mapping
         run_allocations = {}  # task.id -> total_allocated_qty
+        lay_assignments = {}  # lay_stage_id -> list of {'task_id': task.id, 'quantity': qty}
         for task in tasks:
             run_allocations[task.id] = 0
         
@@ -45,7 +46,7 @@ class TransferGangingEngine(models.Model):
         # Process primary compatibility groups first (like-with-like)
         unprocessed_groups = {}
         for group_key, group_tasks in compatibility_groups.items():
-            result = self._process_compatibility_group(group_tasks, lay_stages, run_allocations)
+            result = self._process_compatibility_group(group_tasks, lay_stages, run_allocations, lay_assignments)
             total_allocated_qty += result['allocated_qty']
             
             # Keep track of groups with remaining unprocessed tasks
@@ -54,11 +55,11 @@ class TransferGangingEngine(models.Model):
         
         # Try cross-compatibility ganging for remaining unprocessed tasks
         if unprocessed_groups and lay_stages:
-            cross_result = self._process_cross_compatibility(unprocessed_groups, lay_stages, run_allocations)
+            cross_result = self._process_cross_compatibility(unprocessed_groups, lay_stages, run_allocations, lay_assignments)
             total_allocated_qty += cross_result['allocated_qty']
         
-        # Final cleanup: move fully consumed tasks to LAY stages
-        fully_ganged_count = self._finalize_task_assignments(run_allocations)
+        # Final cleanup: move fully consumed tasks to LAY stages using LAY assignments
+        fully_ganged_count = self._finalize_task_assignments_with_lay_mapping(run_allocations, lay_assignments)
         
         remaining_qty = total_remaining_qty - total_allocated_qty
         message = f"Analysis complete: {total_allocated_qty} items allocated across {fully_ganged_count} tasks, {remaining_qty} items left for future opportunities"
@@ -102,7 +103,7 @@ class TransferGangingEngine(models.Model):
         
         return groups
     
-    def _process_compatibility_group(self, tasks, lay_stages, run_allocations):
+    def _process_compatibility_group(self, tasks, lay_stages, run_allocations, lay_assignments):
         """Process a group of compatible tasks with better consolidation"""
         allocated_qty = 0
         ganged_count = 0
@@ -121,8 +122,8 @@ class TransferGangingEngine(models.Model):
         max_sheets_per_lay = 12  # Allow up to 12 A3 sheets per LAY column for better consolidation
         
         while remaining_tasks and lay_stages:
-            # Find best combination for one A3 sheet
-            best_combination = self._find_best_a3_combination(remaining_tasks)
+            # Find best combination for one A3 sheet - pass run_allocations to prevent over-allocation
+            best_combination = self._find_best_a3_combination(remaining_tasks, run_allocations)
             
             if not best_combination:
                 # No good combinations found, leave remaining unplanned
@@ -137,6 +138,9 @@ class TransferGangingEngine(models.Model):
                 if current_lay_stage is None or sheets_in_current_lay >= max_sheets_per_lay:
                     current_lay_stage = lay_stages.pop(0) if lay_stages else None
                     sheets_in_current_lay = 0
+                    # Initialize LAY assignment tracking for this stage
+                    if current_lay_stage and current_lay_stage.id not in lay_assignments:
+                        lay_assignments[current_lay_stage.id] = []
                 if current_lay_stage:
                     # Handle new combination format with task and quantity
                     tasks_to_remove = []
@@ -146,9 +150,15 @@ class TransferGangingEngine(models.Model):
                             task = item['task']
                             quantity = item['quantity']
                             
-                            # Track allocated quantity
+                            # Track allocated quantity AND LAY assignment
                             run_allocations[task.id] += quantity
                             allocated_in_template += quantity
+                            
+                            # Record LAY assignment for this task
+                            lay_assignments[current_lay_stage.id].append({
+                                'task_id': task.id,
+                                'quantity': quantity
+                            })
                             
                             # Mark for removal if fully consumed, but don't set stage yet
                             if run_allocations[task.id] >= task.get_remaining_quantity():
@@ -156,12 +166,26 @@ class TransferGangingEngine(models.Model):
                                     tasks_to_remove.append(task)
                         else:
                             # Backward compatibility for simple task list - don't set stage directly!
-                            # Just track the task for removal and let finalization handle stage assignment
+                            # Record LAY assignment and track for removal
                             if item in remaining_tasks:
-                                # Mark as fully consumed since it's in backward compatibility mode
-                                run_allocations[item.id] = item.get_remaining_quantity()
-                                allocated_in_template += item.get_remaining_quantity()
-                                tasks_to_remove.append(item)
+                                # Calculate available quantity considering prior allocations
+                                already_allocated = run_allocations.get(item.id, 0)
+                                available_qty = max(0, item.get_remaining_quantity() - already_allocated)
+                                quantity = min(available_qty, item.get_remaining_quantity())
+                                
+                                if quantity > 0:
+                                    # Record LAY assignment for this task
+                                    lay_assignments[current_lay_stage.id].append({
+                                        'task_id': item.id,
+                                        'quantity': quantity
+                                    })
+                                    # Accumulate allocation (don't overwrite)
+                                    run_allocations[item.id] += quantity
+                                allocated_in_template += quantity
+                                
+                                # Only remove if fully consumed for better consolidation
+                                if run_allocations[item.id] >= item.get_remaining_quantity():
+                                    tasks_to_remove.append(item)
                     
                     # Remove tasks that were fully consumed
                     for task in tasks_to_remove:
@@ -188,6 +212,9 @@ class TransferGangingEngine(models.Model):
                     if current_lay_stage is None or sheets_in_current_lay >= max_sheets_per_lay:
                         current_lay_stage = lay_stages.pop(0) if lay_stages else None
                         sheets_in_current_lay = 0
+                        # Initialize LAY assignment tracking for this stage
+                        if current_lay_stage and current_lay_stage.id not in lay_assignments:
+                            lay_assignments[current_lay_stage.id] = []
                     if current_lay_stage:
                         tasks_to_remove = []
                         allocated_in_critical = 0
@@ -195,19 +222,39 @@ class TransferGangingEngine(models.Model):
                             if isinstance(item, dict):
                                 task = item['task']
                                 quantity = item['quantity']
-                                # Track allocation but don't set stage yet - finalize will handle it
+                                # Track allocation AND LAY assignment for critical items
                                 run_allocations[task.id] += quantity
                                 allocated_in_critical += quantity
+                                
+                                # Record LAY assignment for critical item
+                                lay_assignments[current_lay_stage.id].append({
+                                    'task_id': task.id,
+                                    'quantity': quantity
+                                })
+                                
                                 if run_allocations[task.id] >= task.get_remaining_quantity():
                                     if task in remaining_tasks:
                                         tasks_to_remove.append(task)
                             else:
-                                # Don't set stage directly - let finalization handle it
+                                # Record LAY assignment with proper allocation accounting
                                 if item in remaining_tasks:
-                                    # Mark as fully consumed since it's in backward compatibility mode
-                                    run_allocations[item.id] = item.get_remaining_quantity()
-                                    allocated_in_critical += item.get_remaining_quantity()
-                                    tasks_to_remove.append(item)
+                                    # Calculate available quantity considering prior allocations
+                                    already_allocated = run_allocations.get(item.id, 0)
+                                    available_qty = max(0, item.get_remaining_quantity() - already_allocated)
+                                    quantity = min(available_qty, item.get_remaining_quantity())
+                                    
+                                    if quantity > 0:
+                                        lay_assignments[current_lay_stage.id].append({
+                                            'task_id': item.id,
+                                            'quantity': quantity
+                                        })
+                                        # CRITICAL FIX: Accumulate allocation (don't overwrite)
+                                        run_allocations[item.id] += quantity
+                                        allocated_in_critical += quantity
+                                    
+                                    # Only remove if fully consumed for better consolidation
+                                    if run_allocations[item.id] >= item.get_remaining_quantity():
+                                        tasks_to_remove.append(item)
                         
                         # Remove tasks that were fully consumed
                         for task in tasks_to_remove:
@@ -227,25 +274,36 @@ class TransferGangingEngine(models.Model):
             'remaining_tasks': remaining_tasks
         }
     
-    def _process_cross_compatibility(self, unprocessed_groups, lay_stages, run_allocations):
-        """Process cross-compatibility ganging for remaining tasks - prioritize size optimization"""
+    def _process_cross_compatibility(self, unprocessed_groups, lay_stages, run_allocations, lay_assignments):
+        """Process cross-compatibility ganging for remaining tasks with consolidation logic"""
         allocated_qty = 0
         ganged_count = 0
         
         # Create a pool of cross-compatible tasks
         compatible_pools = self._create_cross_compatibility_pools(unprocessed_groups)
         
+        # Consolidation logic: Process multiple A3 sheets per LAY column like primary processing
+        current_lay_stage = None
+        sheets_in_current_lay = 0
+        max_sheets_per_lay = 12  # Same consolidation limit as primary processing
+        
         for pool_tasks in compatible_pools:
-            if not pool_tasks or not lay_stages:
-                break
+            while pool_tasks and lay_stages:
+                # Find best cross-compatibility combination focusing on size optimization - pass run_allocations
+                best_combination = self._find_best_cross_compatible_combination(pool_tasks, run_allocations)
                 
-            # Find best cross-compatibility combination focusing on size optimization
-            best_combination = self._find_best_cross_compatible_combination(pool_tasks)
-            
-            if best_combination and self._should_gang_combination(best_combination):
-                # Use consolidation logic for cross-compatibility too
-                lay_stage = lay_stages.pop(0) if lay_stages else None
-                if lay_stage:
+                if not best_combination or not self._should_gang_combination(best_combination):
+                    break
+                
+                # Use consolidation logic: reuse current LAY stage or get new one
+                if current_lay_stage is None or sheets_in_current_lay >= max_sheets_per_lay:
+                    current_lay_stage = lay_stages.pop(0) if lay_stages else None
+                    sheets_in_current_lay = 0
+                    # Initialize LAY assignment tracking for this stage
+                    if current_lay_stage and current_lay_stage.id not in lay_assignments:
+                        lay_assignments[current_lay_stage.id] = []
+                
+                if current_lay_stage:
                     tasks_to_remove = []
                     allocated_in_template = 0
                     for item in best_combination:
@@ -253,19 +311,38 @@ class TransferGangingEngine(models.Model):
                             task = item['task']
                             quantity = item['quantity']
                             
-                            # Track allocated quantity
+                            # Track allocated quantity AND LAY assignment
                             run_allocations[task.id] += quantity
                             allocated_in_template += quantity
+                            
+                            # Record LAY assignment for this task
+                            lay_assignments[current_lay_stage.id].append({
+                                'task_id': task.id,
+                                'quantity': quantity
+                            })
                             
                             # Don't set stage directly - let finalization handle it
                             if run_allocations[task.id] >= task.get_remaining_quantity():
                                 tasks_to_remove.append(task)
                         else:
                             # Backward compatibility - don't set stage directly
-                            # Mark as fully consumed since it's in backward compatibility mode
-                            self.run_allocations[item.id] = item.get_remaining_quantity()
-                            allocated_in_template += item.get_remaining_quantity()
-                            tasks_to_remove.append(item)
+                            # Calculate available quantity and record LAY assignment
+                            already_allocated = run_allocations.get(item.id, 0)
+                            available_qty = max(0, item.get_remaining_quantity() - already_allocated)
+                            quantity = min(available_qty, item.get_remaining_quantity())
+                            
+                            if quantity > 0:
+                                lay_assignments[current_lay_stage.id].append({
+                                    'task_id': item.id,
+                                    'quantity': quantity
+                                })
+                                # Accumulate allocation (don't overwrite)
+                                run_allocations[item.id] += quantity
+                            allocated_in_template += quantity
+                            
+                            # Only remove if fully consumed for better consolidation
+                            if run_allocations[item.id] >= item.get_remaining_quantity():
+                                tasks_to_remove.append(item)
                     
                     # Remove tasks that were fully consumed from original groups
                     for task in tasks_to_remove:
@@ -273,9 +350,10 @@ class TransferGangingEngine(models.Model):
                             if task in group_tasks:
                                 group_tasks.remove(task)
                     
-                    # Update tracking totals
+                    # Update tracking totals and sheet count for consolidation
                     allocated_qty += allocated_in_template
                     ganged_count += len(tasks_to_remove)
+                    sheets_in_current_lay += 1  # Increment sheet count for consolidation
                 else:
                     break
         
@@ -288,50 +366,70 @@ class TransferGangingEngine(models.Model):
         """Create pools of tasks that can gang across compatibility boundaries"""
         pools = []
         
-        # Pool 1: Full colour + Single colour white
+        # Extract tasks from consolidated groups and filter by color compatibility  
         full_colour_tasks = unprocessed_groups.get('full_colour', [])
-        single_white_tasks = unprocessed_groups.get('single_white', [])
+        single_colour_tasks = unprocessed_groups.get('single_colour_group', [])
+        metal_tasks = unprocessed_groups.get('metal', [])
+        
+        # Pool 1: Full colour + Single colour white tasks
+        single_white_tasks = [t for t in single_colour_tasks if t.get_parsed_color_variant() == 'white']
         if full_colour_tasks or single_white_tasks:
             pools.append(full_colour_tasks + single_white_tasks)
         
-        # Pool 2: Metal + Single colour silver
-        metal_tasks = unprocessed_groups.get('metal', [])
-        single_silver_tasks = unprocessed_groups.get('single_silver', [])
+        # Pool 2: Metal + Single colour silver tasks  
+        single_silver_tasks = [t for t in single_colour_tasks if t.get_parsed_color_variant() == 'silver']
         if metal_tasks or single_silver_tasks:
             pools.append(metal_tasks + single_silver_tasks)
         
+        # Pool 3: Remaining single colour tasks (non-white, non-silver) can gang among themselves
+        other_single_tasks = [t for t in single_colour_tasks 
+                            if t.get_parsed_color_variant() not in ['white', 'silver']]
+        if other_single_tasks:
+            pools.append(other_single_tasks)
+        
         return pools
     
-    def _find_best_cross_compatible_combination(self, tasks):
+    def _find_best_cross_compatible_combination(self, tasks, run_allocations=None):
         """Find best combination across compatible task types focusing on size optimization"""
         if not tasks:
             return []
             
         # Use the same logic as regular combination finding but with cross-compatible tasks
-        return self._find_best_a3_combination(tasks)
+        return self._find_best_a3_combination(tasks, run_allocations)
     
-    def _find_best_a3_combination(self, tasks):
-        """Find the best mixed-size combination using predefined layout templates"""
+    def _find_best_a3_combination(self, tasks, run_allocations=None):
+        """Find the best mixed-size combination using predefined layout templates, accounting for prior allocations"""
         if not tasks:
             return []
+        
+        # Initialize run_allocations if not provided (for backward compatibility)
+        if run_allocations is None:
+            run_allocations = {}
         
         # Handle A3 size separately - cannot be ganged
         a3_tasks = [t for t in tasks if t.get_parsed_transfer_size() == 'a3']
         if a3_tasks:
-            best_a3 = max(a3_tasks, key=lambda t: t.get_gang_priority())
-            return [{'task': best_a3, 'quantity': 1}]
+            # Find A3 task with available quantity
+            for task in sorted(a3_tasks, key=lambda t: t.get_gang_priority(), reverse=True):
+                already_allocated = run_allocations.get(task.id, 0)
+                available_qty = max(0, task.get_remaining_quantity() - already_allocated)
+                if available_qty >= 1:
+                    return [{'task': task, 'quantity': 1}]
+            return []  # No A3 tasks with available quantity
         
-        # Create available task inventory
+        # Create available task inventory accounting for prior allocations
         available_tasks = {}
         for task in tasks:
             size = task.get_parsed_transfer_size()
-            remaining_qty = task.get_remaining_quantity()
-            if size != 'a3' and remaining_qty > 0:
+            already_allocated = run_allocations.get(task.id, 0)
+            available_qty = max(0, task.get_remaining_quantity() - already_allocated)
+            
+            if size != 'a3' and available_qty > 0:
                 if size not in available_tasks:
                     available_tasks[size] = []
                 available_tasks[size].append({
                     'task': task,
-                    'remaining_qty': remaining_qty,
+                    'remaining_qty': available_qty,  # Use available, not remaining
                     'priority': task.get_gang_priority()
                 })
         
@@ -414,13 +512,15 @@ class TransferGangingEngine(models.Model):
                 'name': '1×A4 + 1×A5 + 4×100x70',
                 'layout': {'a4': 1, 'a5': 1, '100x70': 4},
                 'description': 'Optimal mixed medium sizes',
-                'priority': 15  # INCREASED priority for high utilization
+                'priority': 15,  # INCREASED priority for high utilization
+                'utilization': 0.92  # Added utilization for scoring
             },
             {
                 'name': '2×A5 + 2×A6 + 4×100x70',
                 'layout': {'a5': 2, 'a6': 2, '100x70': 4},
                 'description': 'High density small-medium mix',
-                'priority': 15  # INCREASED priority for high utilization
+                'priority': 15,  # INCREASED priority for high utilization
+                'utilization': 0.90  # Added utilization for scoring
             },
             {
                 'name': '1×A4 + 2×A6 + 8×100x70',
@@ -486,7 +586,8 @@ class TransferGangingEngine(models.Model):
                 'name': 'Max 100x70 only',
                 'layout': {'100x70': 40},  # Will be calculated by fit algorithm
                 'description': 'Maximum small format density',
-                'priority': 12  # INCREASED for better consolidation
+                'priority': 12,  # INCREASED for better consolidation
+                'utilization': 0.88  # Added utilization for scoring
             },
             {
                 'name': 'Max 95x95 only',
@@ -696,6 +797,61 @@ class TransferGangingEngine(models.Model):
                 available_stages.append(stage)
         
         return available_stages
+    
+    def _finalize_task_assignments_with_lay_mapping(self, run_allocations, lay_assignments):
+        """Move fully consumed tasks to LAY stages using the LAY assignment mapping to preserve consolidation"""
+        if not run_allocations:
+            return 0
+        
+        assigned_count = 0
+        processed_task_ids = set()
+        
+        # First: Process tasks by LAY assignment mapping to preserve consolidation
+        if lay_assignments:
+            for lay_stage_id, task_assignments in lay_assignments.items():
+                lay_stage = self.env['project.task.type'].browse(lay_stage_id)
+                if not lay_stage.exists():
+                    continue
+                    
+                for assignment in task_assignments:
+                    task_id = assignment['task_id']
+                    processed_task_ids.add(task_id)
+                    
+                    task = self.env['project.task'].browse(task_id)
+                    if not task.exists():
+                        continue
+                        
+                    remaining_qty = task.get_remaining_quantity()
+                    total_allocated = run_allocations.get(task_id, 0)
+                    
+                    # Only move to LAY if the task is substantially or fully consumed
+                    if total_allocated >= remaining_qty:
+                        # Only assign to LAY stage if not already in one
+                        current_stage_name = task.stage_id.name or '' if task.stage_id else ''
+                        if 'LAY' not in current_stage_name:
+                            task.stage_id = lay_stage.id
+                            assigned_count += 1
+                            _logger.info(f"Task {task.name} assigned to LAY stage {lay_stage.name} via consolidated mapping")
+        
+        # Fallback: Process any remaining fully consumed tasks from run_allocations
+        lay_stages = self._get_lay_stages()
+        lay_stage_index = 0
+        for task_id, allocated_qty in run_allocations.items():
+            if task_id not in processed_task_ids and allocated_qty > 0:
+                task = self.env['project.task'].browse(task_id)
+                remaining_qty = task.get_remaining_quantity()
+                
+                # Only move to LAY if the task is substantially or fully consumed
+                if allocated_qty >= remaining_qty:
+                    # Only assign to LAY stage if not already in one
+                    current_stage_name = task.stage_id.name or '' if task.stage_id else ''
+                    if 'LAY' not in current_stage_name and lay_stage_index < len(lay_stages):
+                        task.stage_id = lay_stages[lay_stage_index].id
+                        lay_stage_index += 1
+                        assigned_count += 1
+                        _logger.info(f"Task {task.name} assigned to LAY stage {lay_stages[lay_stage_index-1].name} via fallback")
+        
+        return assigned_count
     
     def _finalize_task_assignments(self, run_allocations):
         """Move fully consumed tasks to LAY stages and return count"""
