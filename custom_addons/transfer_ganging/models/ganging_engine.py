@@ -80,21 +80,21 @@ class TransferGangingEngine(models.Model):
             product_type = task.get_parsed_product_type()
             color_variant = task.get_parsed_color_variant()
             
-            # Create primary compatibility key - prioritize like-with-like
+            # Create primary compatibility key - LESS segregation for better consolidation
             if product_type == 'zero':
-                # Zero transfers are always alone
-                key = f"zero_{task.id}"
+                # Group zero transfers together instead of isolating each one
+                key = "zero_group"
             elif product_type == 'full_colour':
-                # Full colour gets its own primary group
+                # Full colour gets its own primary group  
                 key = "full_colour"
             elif product_type == 'single_colour':
-                # Single colour jobs grouped by their specific color
-                key = f"single_{color_variant or 'unknown'}"
+                # Group ALL single colour together initially - color mixing rules applied in combination logic
+                key = "single_colour_group"
             elif product_type == 'metal':
                 # Metal gets its own group
                 key = "metal"
             else:
-                key = f"unknown_{task.id}"
+                key = "unknown_group"
             
             if key not in groups:
                 groups[key] = []
@@ -103,7 +103,7 @@ class TransferGangingEngine(models.Model):
         return groups
     
     def _process_compatibility_group(self, tasks, lay_stages, run_allocations):
-        """Process a group of compatible tasks"""
+        """Process a group of compatible tasks with better consolidation"""
         allocated_qty = 0
         ganged_count = 0
         unplanned_count = 0
@@ -112,8 +112,13 @@ class TransferGangingEngine(models.Model):
         # Note: Mixed deadlines are allowed - priority is just for processing order
         sorted_tasks = sorted(tasks, key=lambda t: t.get_gang_priority(), reverse=True)
         
-        # Try to find optimal ganging combinations
+        # Try to find optimal ganging combinations with consolidation
         remaining_tasks = list(sorted_tasks)
+        
+        # Consolidation logic: Process multiple A3 sheets per LAY column
+        current_lay_stage = None
+        sheets_in_current_lay = 0
+        max_sheets_per_lay = 12  # Allow up to 12 A3 sheets per LAY column for better consolidation
         
         while remaining_tasks and lay_stages:
             # Find best combination for one A3 sheet
@@ -128,9 +133,11 @@ class TransferGangingEngine(models.Model):
             should_gang = self._should_gang_combination(best_combination)
             
             if should_gang:
-                # Assign to LAY column
-                lay_stage = lay_stages.pop(0) if lay_stages else None
-                if lay_stage:
+                # Consolidation logic: Use current LAY stage if available, otherwise get new one
+                if current_lay_stage is None or sheets_in_current_lay >= max_sheets_per_lay:
+                    current_lay_stage = lay_stages.pop(0) if lay_stages else None
+                    sheets_in_current_lay = 0
+                if current_lay_stage:
                     # Handle new combination format with task and quantity
                     tasks_to_remove = []
                     allocated_in_template = 0
@@ -160,9 +167,10 @@ class TransferGangingEngine(models.Model):
                     for task in tasks_to_remove:
                         remaining_tasks.remove(task)
                     
-                    # Update tracking totals
+                    # Update tracking totals and sheet count
                     allocated_qty += allocated_in_template
                     ganged_count += len(tasks_to_remove)
+                    sheets_in_current_lay += 1  # Increment sheet count in current LAY
                 else:
                     # No more LAY columns available
                     break
@@ -176,8 +184,11 @@ class TransferGangingEngine(models.Model):
                 
                 if critical_items:
                     # Gang critical tasks even if not cost-effective
-                    lay_stage = lay_stages.pop(0) if lay_stages else None
-                    if lay_stage:
+                    # Use consolidation logic for critical tasks too
+                    if current_lay_stage is None or sheets_in_current_lay >= max_sheets_per_lay:
+                        current_lay_stage = lay_stages.pop(0) if lay_stages else None
+                        sheets_in_current_lay = 0
+                    if current_lay_stage:
                         tasks_to_remove = []
                         allocated_in_critical = 0
                         for item in critical_items:
@@ -202,9 +213,10 @@ class TransferGangingEngine(models.Model):
                         for task in tasks_to_remove:
                             remaining_tasks.remove(task)
                         
-                        # Update tracking totals
+                        # Update tracking totals and sheet count
                         allocated_qty += allocated_in_critical
                         ganged_count += len(tasks_to_remove)
+                        sheets_in_current_lay += 1  # Increment sheet count in current LAY
                 else:
                     # Leave all unplanned
                     unplanned_count += len(remaining_tasks)
@@ -231,7 +243,7 @@ class TransferGangingEngine(models.Model):
             best_combination = self._find_best_cross_compatible_combination(pool_tasks)
             
             if best_combination and self._should_gang_combination(best_combination):
-                # Assign to LAY column
+                # Use consolidation logic for cross-compatibility too
                 lay_stage = lay_stages.pop(0) if lay_stages else None
                 if lay_stage:
                     tasks_to_remove = []
