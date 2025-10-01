@@ -1,6 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Server actions completely removed to prevent task-level buttons -->
+        <!-- Action Menu Items for Project Ganging (accessible from Kanban view) -->
+        <record id="action_gang_transfer_tasks" model="ir.actions.server">
+            <field name="name">Analyze and Gang Transfer Tasks</field>
+            <field name="model_id" ref="project.model_project_project"/>
+            <field name="binding_model_id" ref="project.model_project_project"/>
+            <field name="binding_view_types">kanban,tree,form</field>
+            <field name="state">code</field>
+            <field name="code">
+if records:
+    action = records[0].action_analyze_and_gang_tasks()
+            </field>
+        </record>
+
+        <record id="action_generate_combination_report" model="ir.actions.server">
+            <field name="name">Generate Combination Analysis Report</field>
+            <field name="model_id" ref="project.model_project_project"/>
+            <field name="binding_model_id" ref="project.model_project_project"/>
+            <field name="binding_view_types">kanban,tree,form</field>
+            <field name="state">code</field>
+            <field name="code">
+if records:
+    action = records[0].action_analyze_all_combinations()
+            </field>
+        </record>
+
+        <record id="action_reset_and_regang" model="ir.actions.server">
+            <field name="name">Reset LAY Assignments and Re-Gang</field>
+            <field name="model_id" ref="project.model_project_project"/>
+            <field name="binding_model_id" ref="project.model_project_project"/>
+            <field name="binding_view_types">kanban,tree,form</field>
+            <field name="state">code</field>
+            <field name="code">
+if records:
+    action = records[0].action_reset_and_regang_tasks()
+            </field>
+        </record>
     </data>
 </odoo>
